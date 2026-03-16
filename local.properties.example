@@ -1,0 +1,5 @@
+sdk.dir=C\:\\Users\\${USER}\\AppData\\Local\\Android\\Sdk
+
+# ── Sentry ───────────────────────────────────────────────────────
+# For crash reporting. Get your DSN from https://sentry.io
+SENTRY_DSN=

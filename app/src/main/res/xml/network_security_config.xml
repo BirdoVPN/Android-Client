@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Block all cleartext (HTTP) traffic — HTTPS only -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Pin birdo.app API certificate chain (defense-in-depth with OkHttp pinning) -->
+    <!-- Chain: birdo.app → WE1 (Google Trust Services) → GlobalSign ECC Root CA - R4 -->
+    <!-- Pins generated 2026-02-22 via PowerShell SPKI SHA-256 against live birdo.app -->
+    <!--
+        I-01 REMINDER: Certificate pins expire 2027-06-01.
+        Set a calendar reminder for 2027-04-01 (60 days before) to:
+        1. Run: ./scripts/generate-cert-pins.sh birdo.app
+        2. Update both pins below and the OkHttp CertificatePinner in NetworkModule.kt
+        3. Ship an app update BEFORE expiry — expired pins cause hard connection failures
+        4. Consider overlapping old+new pins during the transition window
+    -->
+    <domain-config>
+        <domain includeSubdomains="true">birdo.app</domain>
+        <pin-set expiration="2027-06-01">
+            <!-- WE1 — Google Trust Services intermediate (verified 2026-02-22) -->
+            <pin digest="SHA-256">kIdp6NNEd8wsugYyyIYFsi1ylMCED3hZbSR8ZFsa/A4=</pin>
+            <!-- GlobalSign ECC Root CA - R4 (actual root in chain, verified 2026-02-22) -->
+            <pin digest="SHA-256">CLOmM1/OXvSPjw5UOYbAf9GKOxImEp9hhku9W90fHMk=</pin>
+            <!-- ISRG Root X1 — Let's Encrypt root (cross-CA diversity backup) -->
+            <!-- Ensures app survives a Google → Let's Encrypt CA migration -->
+            <pin digest="SHA-256">C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M=</pin>
+        </pin-set>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>

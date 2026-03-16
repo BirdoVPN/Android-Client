@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Base dark background -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#FF080808" />
+            <corners android:radius="20dp" />
+        </shape>
+    </item>
+
+    <!-- Dense pixel grid — row 1 (y=6) -->
+    <item android:width="5dp" android:height="5dp" android:left="8dp" android:top="6dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="20dp" android:top="6dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="44dp" android:top="6dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="68dp" android:top="6dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="80dp" android:top="6dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="104dp" android:top="6dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="128dp" android:top="6dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="152dp" android:top="6dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="176dp" android:top="6dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+
+    <!-- Row 2 (y=18) -->
+    <item android:width="5dp" android:height="5dp" android:left="14dp" android:top="18dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="32dp" android:top="18dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="56dp" android:top="18dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="74dp" android:top="18dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="92dp" android:top="18dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="116dp" android:top="18dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="140dp" android:top="18dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="164dp" android:top="18dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+
+    <!-- Row 3 (y=30) -->
+    <item android:width="5dp" android:height="5dp" android:left="8dp" android:top="30dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="26dp" android:top="30dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="44dp" android:top="30dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="62dp" android:top="30dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="86dp" android:top="30dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="110dp" android:top="30dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="134dp" android:top="30dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="158dp" android:top="30dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="182dp" android:top="30dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+
+    <!-- Row 4 (y=42) -->
+    <item android:width="5dp" android:height="5dp" android:left="18dp" android:top="42dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="38dp" android:top="42dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="56dp" android:top="42dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="74dp" android:top="42dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="98dp" android:top="42dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="122dp" android:top="42dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="146dp" android:top="42dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="170dp" android:top="42dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+
+    <!-- Row 5 (y=54) -->
+    <item android:width="5dp" android:height="5dp" android:left="10dp" android:top="54dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="28dp" android:top="54dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="48dp" android:top="54dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="66dp" android:top="54dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="86dp" android:top="54dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="110dp" android:top="54dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="134dp" android:top="54dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="158dp" android:top="54dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="178dp" android:top="54dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+
+    <!-- Row 6 (y=66) -->
+    <item android:width="5dp" android:height="5dp" android:left="16dp" android:top="66dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="36dp" android:top="66dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="60dp" android:top="66dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="80dp" android:top="66dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="100dp" android:top="66dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="124dp" android:top="66dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="148dp" android:top="66dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="170dp" android:top="66dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+
+    <!-- Row 7 (y=78) -->
+    <item android:width="5dp" android:height="5dp" android:left="8dp" android:top="78dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="26dp" android:top="78dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="50dp" android:top="78dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="72dp" android:top="78dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="92dp" android:top="78dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="114dp" android:top="78dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="138dp" android:top="78dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="162dp" android:top="78dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="184dp" android:top="78dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+
+    <!-- Row 8 (y=90) -->
+    <item android:width="5dp" android:height="5dp" android:left="18dp" android:top="90dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="40dp" android:top="90dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="64dp" android:top="90dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="84dp" android:top="90dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="108dp" android:top="90dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="130dp" android:top="90dp">
+        <shape android:shape="rectangle"><solid android:color="#0AFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="154dp" android:top="90dp">
+        <shape android:shape="rectangle"><solid android:color="#1FFFFFFF" /></shape>
+    </item>
+    <item android:width="5dp" android:height="5dp" android:left="176dp" android:top="90dp">
+        <shape android:shape="rectangle"><solid android:color="#14FFFFFF" /></shape>
+    </item>
+
+    <!-- Subtle glass border -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent" />
+            <stroke
+                android:width="1dp"
+                android:color="#14FFFFFF" />
+            <corners android:radius="20dp" />
+        </shape>
+    </item>
+</layer-list>

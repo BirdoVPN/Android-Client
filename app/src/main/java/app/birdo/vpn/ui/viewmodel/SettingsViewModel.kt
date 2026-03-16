@@ -1,0 +1,245 @@
+package app.birdo.vpn.ui.viewmodel
+
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
+import android.graphics.drawable.Drawable
+import android.net.Uri
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import app.birdo.vpn.data.preferences.AppPreferences
+import app.birdo.vpn.utils.InputValidator
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import javax.inject.Inject
+
+data class AppInfo(
+    val packageName: String,
+    val label: String,
+    val icon: Drawable?,
+    val isExcluded: Boolean,
+)
+
+data class SettingsUiState(
+    val killSwitchEnabled: Boolean = true,
+    val autoConnect: Boolean = false,
+    val notificationsEnabled: Boolean = true,
+    val showIpInNotification: Boolean = true,
+    val showLocationInNotification: Boolean = true,
+    val splitTunnelingEnabled: Boolean = false,
+    val splitTunnelApps: Set<String> = emptySet(),
+    val installedApps: List<AppInfo> = emptyList(),
+    val isLoadingApps: Boolean = false,
+    // VPN protocol settings
+    val localNetworkSharing: Boolean = false,
+    val customDnsEnabled: Boolean = false,
+    val customDnsPrimary: String = "",
+    val customDnsSecondary: String = "",
+    val wireGuardPort: String = "auto",
+    val wireGuardMtu: Int = 0,
+    // Stealth & Quantum settings
+    val stealthModeEnabled: Boolean = true,
+    val quantumProtectionEnabled: Boolean = true,
+    // Biometric lock
+    val biometricLockEnabled: Boolean = false,
+    // Theme mode: "dark", "light", "system"
+    val themeMode: String = "system",
+)
+
+@HiltViewModel
+class SettingsViewModel @Inject constructor(
+    private val prefs: AppPreferences,
+    @ApplicationContext private val context: Context,
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(
+        SettingsUiState(
+            killSwitchEnabled = prefs.killSwitchEnabled,
+            autoConnect = prefs.autoConnect,
+            notificationsEnabled = prefs.notificationsEnabled,
+            showIpInNotification = prefs.showIpInNotification,
+            showLocationInNotification = prefs.showLocationInNotification,
+            splitTunnelingEnabled = prefs.splitTunnelingEnabled,
+            splitTunnelApps = prefs.splitTunnelApps,
+            localNetworkSharing = prefs.localNetworkSharing,
+            customDnsEnabled = prefs.customDnsEnabled,
+            customDnsPrimary = prefs.customDnsPrimary,
+            customDnsSecondary = prefs.customDnsSecondary,
+            wireGuardPort = prefs.wireGuardPort,
+            wireGuardMtu = prefs.wireGuardMtu,
+            stealthModeEnabled = prefs.stealthModeEnabled,
+            quantumProtectionEnabled = prefs.quantumProtectionEnabled,
+            biometricLockEnabled = prefs.biometricLockEnabled,
+            themeMode = prefs.themeMode,
+        )
+    )
+    val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+
+    fun setKillSwitch(enabled: Boolean) {
+        prefs.killSwitchEnabled = enabled
+        _uiState.value = _uiState.value.copy(killSwitchEnabled = enabled)
+    }
+
+    fun setAutoConnect(enabled: Boolean) {
+        prefs.autoConnect = enabled
+        _uiState.value = _uiState.value.copy(autoConnect = enabled)
+    }
+
+    fun setNotifications(enabled: Boolean) {
+        prefs.notificationsEnabled = enabled
+        _uiState.value = _uiState.value.copy(notificationsEnabled = enabled)
+    }
+
+    fun setShowIpInNotification(enabled: Boolean) {
+        prefs.showIpInNotification = enabled
+        _uiState.value = _uiState.value.copy(showIpInNotification = enabled)
+    }
+
+    fun setShowLocationInNotification(enabled: Boolean) {
+        prefs.showLocationInNotification = enabled
+        _uiState.value = _uiState.value.copy(showLocationInNotification = enabled)
+    }
+
+    fun setSplitTunneling(enabled: Boolean) {
+        prefs.splitTunnelingEnabled = enabled
+        _uiState.value = _uiState.value.copy(splitTunnelingEnabled = enabled)
+    }
+
+    fun toggleAppExclusion(packageName: String) {
+        val current = prefs.splitTunnelApps.toMutableSet()
+        if (current.contains(packageName)) {
+            current.remove(packageName)
+        } else {
+            current.add(packageName)
+        }
+        prefs.splitTunnelApps = current
+        _uiState.value = _uiState.value.copy(
+            splitTunnelApps = current,
+            installedApps = _uiState.value.installedApps.map {
+                if (it.packageName == packageName) it.copy(isExcluded = current.contains(packageName))
+                else it
+            },
+        )
+    }
+
+    fun loadInstalledApps() {
+        _uiState.value = _uiState.value.copy(isLoadingApps = true)
+
+        viewModelScope.launch {
+            try {
+                val apps = withContext(Dispatchers.IO) {
+                    val pm = context.packageManager
+                    val ownPackage = context.packageName
+                    val excluded = prefs.splitTunnelApps
+
+                    pm.getInstalledApplications(PackageManager.GET_META_DATA)
+                        .filter { app ->
+                            app.packageName != ownPackage &&
+                                pm.getLaunchIntentForPackage(app.packageName) != null
+                        }
+                        .map { app ->
+                            AppInfo(
+                                packageName = app.packageName,
+                                label = pm.getApplicationLabel(app).toString(),
+                                icon = try { pm.getApplicationIcon(app) } catch (_: Exception) { null },
+                                isExcluded = excluded.contains(app.packageName),
+                            )
+                        }
+                        .sortedWith(
+                            compareByDescending<AppInfo> { it.isExcluded }
+                                .thenBy { it.label.lowercase() }
+                        )
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    installedApps = apps,
+                    isLoadingApps = false,
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(isLoadingApps = false)
+            }
+        }
+    }
+
+    // ── Stealth & Quantum Settings ────────────────────────────────
+
+    fun setStealthMode(enabled: Boolean) {
+        prefs.stealthModeEnabled = enabled
+        _uiState.value = _uiState.value.copy(stealthModeEnabled = enabled)
+    }
+
+    fun setQuantumProtection(enabled: Boolean) {
+        prefs.quantumProtectionEnabled = enabled
+        _uiState.value = _uiState.value.copy(quantumProtectionEnabled = enabled)
+    }
+
+    fun setBiometricLock(enabled: Boolean) {
+        prefs.biometricLockEnabled = enabled
+        _uiState.value = _uiState.value.copy(biometricLockEnabled = enabled)
+    }
+
+    fun setThemeMode(mode: String) {
+        if (mode !in listOf("dark", "light", "system")) return
+        prefs.themeMode = mode
+        _uiState.value = _uiState.value.copy(themeMode = mode)
+    }
+
+    // ── VPN Protocol Settings ───────────────────────────────────
+
+    fun setLocalNetworkSharing(enabled: Boolean) {
+        prefs.localNetworkSharing = enabled
+        _uiState.value = _uiState.value.copy(localNetworkSharing = enabled)
+    }
+
+    fun setCustomDnsEnabled(enabled: Boolean) {
+        prefs.customDnsEnabled = enabled
+        _uiState.value = _uiState.value.copy(customDnsEnabled = enabled)
+    }
+
+    fun setCustomDnsPrimary(dns: String) {
+        val trimmed = dns.trim()
+        // Allow empty (clears the field) or a valid IP address
+        if (trimmed.isNotBlank() && !InputValidator.isValidDnsAddress(trimmed)) return
+        prefs.customDnsPrimary = trimmed
+        _uiState.value = _uiState.value.copy(customDnsPrimary = trimmed)
+    }
+
+    fun setCustomDnsSecondary(dns: String) {
+        val trimmed = dns.trim()
+        if (trimmed.isNotBlank() && !InputValidator.isValidDnsAddress(trimmed)) return
+        prefs.customDnsSecondary = trimmed
+        _uiState.value = _uiState.value.copy(customDnsSecondary = trimmed)
+    }
+
+    fun setWireGuardPort(port: String) {
+        if (!InputValidator.isValidPort(port)) return
+        prefs.wireGuardPort = port
+        _uiState.value = _uiState.value.copy(wireGuardPort = port)
+    }
+
+    fun setWireGuardMtu(mtu: Int) {
+        val clamped = InputValidator.clampMtu(mtu)
+        prefs.wireGuardMtu = clamped
+        _uiState.value = _uiState.value.copy(wireGuardMtu = clamped)
+    }
+
+    fun openUrl(url: String) {
+        // Only allow HTTPS URLs to prevent intent redirection attacks
+        if (!url.startsWith("https://")) return
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            android.util.Log.w("Settings", "Failed to open URL", e)
+        }
+    }
+}

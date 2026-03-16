@@ -1,0 +1,35 @@
+# Built outputs
+/build/
+/app/build/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Gradle
+/.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+
+# Android Studio / IntelliJ
+*.iml
+.idea/
+.DS_Store
+/captures
+.externalNativeBuild/
+.cxx/
+local.properties
+
+# Keystore
+*.jks
+*.keystore
+!debug.keystore
+
+# Logs
+*.log
+
+# Kotlin
+*.kotlin_module
+
+# ProGuard
+/app/proguard/
