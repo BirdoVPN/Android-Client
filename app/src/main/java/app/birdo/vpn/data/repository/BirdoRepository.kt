@@ -316,6 +316,25 @@ class BirdoRepository @Inject constructor(
     /** P2-15: Expose key ID for quality reporting */
     fun getLastKeyId(): String? = tokenManager.getLastKeyId()
 
+    /**
+     * P1-13: Rotate WireGuard key during a long-running session.
+     * Generates a new local key pair, sends the public key to the backend,
+     * and stores the new private key in encrypted storage.
+     */
+    suspend fun rotateKey(): ApiResult<KeyRotationResponse> {
+        val keyId = tokenManager.getLastKeyId() ?: return ApiResult.Error("No active key ID")
+        val keyPair = com.wireguard.crypto.KeyPair()
+        val clientPublicKey = keyPair.publicKey.toBase64()
+        val result = withAutoRefresh("Key rotation failed") {
+            api.rotateKey(keyId, KeyRotationRequest(clientPublicKey = clientPublicKey))
+        }
+        if (result is ApiResult.Success) {
+            tokenManager.setWireGuardPrivateKey(keyPair.privateKey.toBase64())
+            tokenManager.setLastKeyId(result.data.newKeyId)
+        }
+        return result
+    }
+
     // ── Multi-Hop (Double VPN) ───────────────────────────────────
 
     suspend fun getMultiHopRoutes(): ApiResult<List<MultiHopRoute>> =

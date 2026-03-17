@@ -37,11 +37,11 @@ private val BirdoDarkColorScheme = darkColorScheme(
 )
 
 private val BirdoLightColorScheme = lightColorScheme(
-    primary = BirdoPrimary,
+    primary = Color(0xFF1A1A2E),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFE8F5E9),
-    onPrimaryContainer = Color(0xFF1B5E20),
-    secondary = BirdoPurple,
+    primaryContainer = Color(0xFFE8E8F0),
+    onPrimaryContainer = Color(0xFF1A1A2E),
+    secondary = BirdoPurpleDark,
     onSecondary = Color.White,
     secondaryContainer = Color(0xFFF3E5F5),
     onSecondaryContainer = Color(0xFF4A148C),
@@ -55,7 +55,7 @@ private val BirdoLightColorScheme = lightColorScheme(
     onSurfaceVariant = Color(0xFF5A5A6E),
     outline = Color(0xFFD0D0DE),
     outlineVariant = Color(0xFFE8E8F0),
-    error = BirdoRed,
+    error = Color(0xFFD32F2F),
     onError = Color.White,
     errorContainer = Color(0xFFFFEBEE),
     onErrorContainer = Color(0xFFB71C1C),

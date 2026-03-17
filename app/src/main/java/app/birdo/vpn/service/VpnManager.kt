@@ -77,6 +77,8 @@ class VpnManager @Inject constructor(
         private const val MAX_RECONNECT_DELAY_MS = 60_000L
         /** Heartbeat interval (ms) — sends keepalive to backend while connected */
         private const val HEARTBEAT_INTERVAL_MS = 30_000L
+        /** Key rotation interval: rotate WireGuard keys every ~45 min for forward secrecy */
+        private const val KEY_ROTATION_HEARTBEATS = 90 // 90 × 30s = 45 minutes
     }
 
     // FIX-2-12: Singleton scope for reactive state collection from the service.
@@ -383,6 +385,7 @@ class VpnManager @Inject constructor(
         heartbeatJob?.cancel()
         heartbeatJob = scope.launch(Dispatchers.IO) {
             var qualityTickCount = 0
+            var keyRotationTickCount = 0
             while (isActive) {
                 delay(HEARTBEAT_INTERVAL_MS)
                 if (_state.value !is VpnState.Connected) break
@@ -428,6 +431,17 @@ class VpnManager @Inject constructor(
                             platform = "android",
                         )
                         repository.sendQualityReport(report) // fire-and-forget
+                    }
+                }
+
+                // P1-13: Periodic key rotation for forward secrecy (~45 min)
+                keyRotationTickCount++
+                if (keyRotationTickCount >= KEY_ROTATION_HEARTBEATS) {
+                    keyRotationTickCount = 0
+                    try {
+                        repository.rotateKey()
+                    } catch (e: Exception) {
+                        android.util.Log.w("VpnManager", "Key rotation failed: ${e.message}")
                     }
                 }
             }

@@ -2,11 +2,13 @@ package app.birdo.vpn.data.auth
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Base64
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.sentry.Sentry
+import org.json.JSONObject
 import java.io.File
 import java.security.KeyStore
 import javax.inject.Inject
@@ -202,7 +204,28 @@ class TokenManager @Inject constructor(
         prefs.edit().clear().apply()
     }
 
-    fun isLoggedIn(): Boolean = getAccessToken() != null
+    fun isLoggedIn(): Boolean {
+        val token = getAccessToken() ?: return false
+        return !isTokenExpired(token)
+    }
+
+    /**
+     * Check whether a JWT has expired by decoding the payload and comparing
+     * the `exp` claim against the current system time.
+     * Returns true if expired or unparseable (fail-safe).
+     */
+    private fun isTokenExpired(jwt: String): Boolean {
+        return try {
+            val parts = jwt.split(".")
+            if (parts.size != 3) return true
+            val payload = String(Base64.decode(parts[1], Base64.URL_SAFE or Base64.NO_WRAP))
+            val exp = JSONObject(payload).optLong("exp", 0L)
+            if (exp == 0L) return true
+            System.currentTimeMillis() / 1000 >= exp
+        } catch (_: Exception) {
+            true
+        }
+    }
 
     // ── Migration ────────────────────────────────────────────────
 
