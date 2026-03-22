@@ -33,3 +33,7 @@ local.properties
 
 # ProGuard
 /app/proguard/
+
+# Screenshots / test artifacts
+emulator-*.png
+*.screenshot.png
