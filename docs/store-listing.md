@@ -19,7 +19,7 @@ Sovereign VPN with WireGuard® — no activity logs, no ads, blazing fast encryp
 Birdo VPN protects your internet connection with WireGuard® encryption. Browse privately, access content freely, and stay secure on any network.
 
 🔒 **No Activity Logs**
-Birdo VPN never logs your browsing activity, DNS queries, or traffic data. Minimal metadata (connection timestamps) is retained for security and abuse prevention only — see our privacy policy for retention periods.
+Birdo VPN operates a strict zero-logs policy on RAM-only volatile infrastructure. No browsing activity, DNS queries, traffic content, connection timestamps, or IP addresses are logged. All VPN servers run exclusively in volatile memory with automated memory scrubbing.
 
 ⚡ **WireGuard® Protocol**
 Built on the modern WireGuard protocol for blazing-fast speeds with minimal battery drain. Connect in under a second.
@@ -68,7 +68,8 @@ A stunning dark-mode interface with smooth animations, inspired by modern design
 
 **Why Birdo VPN?**
 • No ads, no trackers, no data sales — ever
-• Minimal data collection — only email and subscription status
+• Zero-logs on RAM-only volatile infrastructure
+• Only account-level data stored (email, subscription)
 • Built on the open-source WireGuard protocol
 • Post-quantum encryption (Rosenpass key exchange)
 • Stealth mode — bypass VPN detection and censorship
@@ -83,14 +84,14 @@ A stunning dark-mode interface with smooth animations, inspired by modern design
 • Home-screen widget for quick connect/disconnect
 • Quick Settings tile for instant access
 • GDPR-compliant data export and account deletion
-• Battery-efficient — built for Android 10+
+• Battery-efficient — built for Android 10+ and iOS 16+
 
 **Technical Details:**
 • Protocol: WireGuard®
 • Encryption: ChaCha20-Poly1305
 • Key Exchange: Curve25519
-• Minimum Android: 10 (API 29)
-• Target Android: 15 (API 35)
+• Android: Minimum 10 (API 29), Target 15 (API 35)
+• iOS: Minimum 16.0
 
 Download Birdo VPN today and take control of your privacy.
 
@@ -105,7 +106,7 @@ Download Birdo VPN today and take control of your privacy.
 • Split Tunneling for per-app VPN control
 • Quick Settings tile
 • Beautiful dark theme UI
-• Secure token storage with Android Keystore
+• Secure token storage with Android Keystore / iOS Keychain
 
 ---
 
@@ -151,6 +152,7 @@ Download Birdo VPN today and take control of your privacy.
 
 **Additional disclosures:**
 - This app operates a VPN service; network traffic is encrypted and routed through Birdo VPN servers
-- Connection timestamps are retained for up to 90 days for security monitoring
+- Connection timestamps are not logged — RAM-only volatile infrastructure
 - No browsing activity, DNS queries, or traffic content is logged
-- Payment processing is handled by Stripe; card details are never stored by Birdo VPN
+- No IP addresses are stored
+- Payment processing is handled by Paddle (merchant of record); card details are never stored by Birdo VPN

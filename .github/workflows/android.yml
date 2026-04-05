@@ -1,4 +1,4 @@
-name: Android CI
+name: Mobile CI (Android + iOS)
 
 on:
   push:

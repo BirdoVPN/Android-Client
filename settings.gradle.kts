@@ -23,3 +23,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "BirdoVPN"
 include(":app")
+include(":shared")

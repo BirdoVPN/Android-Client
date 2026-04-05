@@ -77,7 +77,7 @@ class AuthViewModel @Inject constructor(
             return
         }
         if (!InputValidator.isValidPassword(password)) {
-            _uiState.value = _uiState.value.copy(error = "Password must be 6–256 characters")
+            _uiState.value = _uiState.value.copy(error = "Password must be 6-256 characters")
             return
         }
 

@@ -124,7 +124,7 @@
     <string name="vpn_settings_mtu_desc">Packet size — lower values improve reliability on unstable networks</string>
     <string name="vpn_settings_mtu_auto">Automatic (server default)</string>
     <string name="vpn_settings_mtu_hint">e.g. 1420</string>
-    <string name="vpn_settings_mtu_range">Valid range: 1280–1500</string>
+    <string name="vpn_settings_mtu_range">Valid range: 1280-1500</string>
     <string name="vpn_settings_changes_note">Changes take effect on next connection</string>
     <string name="settings_version">Version %s</string>
     <string name="cd_open">Open</string>
@@ -143,9 +143,9 @@
     <string name="consent_title">Your Privacy Matters</string>
     <string name="consent_subtitle">Before using Birdo VPN, please review how your data is handled.</string>
     <string name="consent_no_logs_title">No Activity Logs</string>
-    <string name="consent_no_logs_desc">Birdo VPN never logs your browsing activity, DNS queries, or traffic data.</string>
-    <string name="consent_minimal_data_title">Minimal Account Data</string>
-    <string name="consent_minimal_data_desc">Only your email and subscription status are stored to provide the service.</string>
+    <string name="consent_no_logs_desc">Birdo VPN operates a strict zero-logs policy on RAM-only volatile infrastructure. No browsing activity, DNS queries, traffic content, connection timestamps, or IP addresses are logged.</string>
+    <string name="consent_minimal_data_title">Account Data Only</string>
+    <string name="consent_minimal_data_desc">Only your email, subscription status, and aggregate bandwidth are stored in a separate account database — never on VPN servers.</string>
     <string name="consent_crash_reports_title">Crash Reports</string>
     <string name="consent_crash_reports_desc">Anonymous crash reports help fix bugs faster. No personal data is included.</string>
     <string name="consent_no_data_sales_title">No Data Sales</string>

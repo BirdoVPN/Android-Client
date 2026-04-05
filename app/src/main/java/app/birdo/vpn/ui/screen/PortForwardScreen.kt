@@ -143,7 +143,7 @@ fun PortForwardScreen(
                             singleLine = true,
                             isError = portText.isNotEmpty() && !isPortValid,
                             supportingText = if (portText.isNotEmpty() && !isPortValid) {
-                                { Text("Port must be 1–65535", color = BirdoRed) }
+                                { Text("Port must be 1-65535", color = BirdoRed) }
                             } else null,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = BirdoWhite,

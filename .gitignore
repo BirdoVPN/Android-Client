@@ -1,6 +1,7 @@
 # Built outputs
 /build/
 /app/build/
+/shared/build/
 *.apk
 *.aab
 *.ap_
@@ -20,6 +21,9 @@ gradle-app.setting
 .cxx/
 local.properties
 
+# Kotlin
+/.kotlin/
+
 # Keystore
 *.jks
 *.keystore
@@ -33,6 +37,20 @@ local.properties
 
 # ProGuard
 /app/proguard/
+
+# iOS
+iosApp/*.xcodeproj
+iosApp/build/
+iosApp/DerivedData/
+*.xcworkspace
+xcuserdata/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.xccheckout
+*.moved-aside
+Pods/
 
 # Screenshots / test artifacts
 emulator-*.png

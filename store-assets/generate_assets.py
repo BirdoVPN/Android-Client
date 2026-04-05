@@ -3,7 +3,7 @@ from PIL import Image, ImageDraw, ImageFont
 import math
 import os
 
-OUT = r"W:\vpn\birdo-client-android\store-assets"
+OUT = r"W:\vpn\birdo-client-mobile\store-assets"
 os.makedirs(OUT, exist_ok=True)
 
 # ── Colours ──────────────────────────────────────────────────────────

@@ -14,7 +14,7 @@ import kotlin.random.Random
  * Animated pixel canvas background matching the Windows client.
  *
  * Renders a full-screen grid of subtly twinkling white squares on a black
- * background. Each pixel fades in/out randomly at low alpha (0–0.15),
+ * background. Each pixel fades in/out randomly at low alpha (0-0.15),
  * creating an ambient, alive feeling.
  *
  * Performance: Only ~0.1% of pixels change per frame. We use a flat IntArray
@@ -84,11 +84,11 @@ private class PixelGridState {
     var rows = 0
         private set
 
-    // Current alpha (0f–0.25f) stored as Int (0–250) for memory efficiency
+    // Current alpha (0f-0.25f) stored as Int (0-250) for memory efficiency
     private var currentAlpha = IntArray(0)
     // Target alpha
     private var targetAlpha = IntArray(0)
-    // Speed (int, maps to 0.002–0.006)
+    // Speed (int, maps to 0.002-0.006)
     private var speed = IntArray(0)
 
     fun ensureSize(newCols: Int, newRows: Int) {
@@ -108,7 +108,7 @@ private class PixelGridState {
         for (i in 0 until total) {
             // ~0.3% chance of picking a new target per pixel per frame
             if (Random.nextFloat() < 0.003f) {
-                targetAlpha[i] = Random.nextInt(0, 20) // 0–0.20 alpha range
+                targetAlpha[i] = Random.nextInt(0, 20) // 0-0.20 alpha range
             }
 
             // Ease toward target
