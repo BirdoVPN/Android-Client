@@ -761,10 +761,10 @@ class BirdoVpnService : VpnService() {
         // Clear sensitive config from memory (private keys, etc.)
         activeConfig = null
         updateState(VpnState.Disconnected)
-        connectedServer = null
-        connectedSince = 0
-        rxBytes = 0L; txBytes = 0L; publicIp = null
-        stealthActive = false; quantumActive = false
+        _connectedServerFlow.value = null
+        _connectedSinceFlow.value = 0L
+        _rxBytesFlow.value = 0L; _txBytesFlow.value = 0L; _publicIpFlow.value = null
+        _stealthActiveFlow.value = false; _quantumActiveFlow.value = false
         updateWidgetState(false, null)
         notifManager.postDisconnectedNotification()
         stopForeground(STOP_FOREGROUND_REMOVE)

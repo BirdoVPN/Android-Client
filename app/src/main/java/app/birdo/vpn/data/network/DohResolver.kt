@@ -1,5 +1,7 @@
 package app.birdo.vpn.data.network
 
+import app.birdo.vpn.BuildConfig
+import okhttp3.CertificatePinner
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.dnsoverhttps.DnsOverHttps
@@ -13,7 +15,27 @@ import java.net.UnknownHostException
  */
 object DohResolver {
 
-    private val bootstrapClient = OkHttpClient.Builder().build()
+    // Bootstrap client is used for the first DoH connection (before DoH is ready).
+    // Cert-pin the three DoH providers to prevent MITM during bootstrap.
+    private val bootstrapClient: OkHttpClient = run {
+        val builder = OkHttpClient.Builder()
+        if (!BuildConfig.DEBUG) {
+            // SPKI pins for Cloudflare (1.1.1.1), Google (8.8.8.8), and Quad9 (9.9.9.9)
+            // Verified 2026-04-15. Rotate when intermediates are renewed.
+            val pinner = CertificatePinner.Builder()
+                // Cloudflare DoH — cloudflare-dns.com
+                .add("cloudflare-dns.com", "sha256/WoiWRyIOVNa9ihaBciRSC7XHjliYS9VwUGOIud4PB18=") // DigiCert ECC Secure Global Root G3
+                .add("cloudflare-dns.com", "sha256/hxqRlPTu1bMS/0DITB1SSu0vd4u/8l8TjPgfaAp63Vg=") // Baltimore CyberTrust root (cross-sign backup)
+                // Google DoH — dns.google
+                .add("dns.google", "sha256/hxqRlPTu1bMS/0DITB1SSu0vd4u/8l8TjPgfaAp63Vg=") // GTS Root R1
+                .add("dns.google", "sha256/++MBgDH5WGvL9Bcn5Be30cRcL0f5O+NyoXuWtQdX1aI=") // GTS CA 1C3 back-stop
+                // Quad9 DoH — dns.quad9.net
+                .add("dns.quad9.net", "sha256/fwza0LRMXouZHRC8Ei+4PyuldPDcf3UKgO/04cDM1oE=") // DigiCert TLS RSA4096 Root G5
+                .build()
+            builder.certificatePinner(pinner)
+        }
+        builder.build()
+    }
 
     private val cloudflare: DnsOverHttps = DnsOverHttps.Builder()
         .client(bootstrapClient)

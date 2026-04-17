@@ -135,6 +135,13 @@ class BirdoTileService : TileService() {
                 tile.subtitle = "Disconnected"
                 tile.icon = Icon.createWithResource(this, R.drawable.ic_vpn_key)
             }
+            else -> {
+                // Authenticating, StealthConnecting, Reconnecting, KillSwitchActive
+                tile.state = Tile.STATE_ACTIVE
+                tile.label = "Birdo VPN"
+                tile.subtitle = "Working\u2026"
+                tile.icon = Icon.createWithResource(this, R.drawable.ic_vpn_key)
+            }
         }
 
         tile.updateTile()

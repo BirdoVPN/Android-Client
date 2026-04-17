@@ -121,8 +121,9 @@ class BirdoRepository @Inject constructor(
             val response = api.loginAnonymous(AnonymousLoginRequest(deviceId))
             if (response.isSuccessful && response.body() != null) {
                 val body = response.body()!!
-                if (body.ok && body.tokens != null) {
-                    tokenManager.setTokens(body.tokens.accessToken, body.tokens.refreshToken)
+                val tokens = body.tokens
+                if (body.ok && tokens != null) {
+                    tokenManager.setTokens(tokens.accessToken, tokens.refreshToken)
                 }
                 ApiResult.Success(body)
             } else {

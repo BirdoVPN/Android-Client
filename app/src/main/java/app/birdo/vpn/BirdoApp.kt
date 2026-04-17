@@ -34,6 +34,17 @@ class BirdoApp : Application() {
 
             // Performance — sample 100% of transactions (aligned with Windows client)
             options.tracesSampleRate = 1.0
+
+            // SEC: Scrub sensitive values from error events before they are sent.
+            // Prevents VPN credentials (UUIDs, keys, endpoints) leaking via
+            // stack traces or breadcrumb messages captured during connection setup.
+            options.beforeSend = io.sentry.SentryOptions.BeforeSendCallback { event, _ ->
+                event.message?.formatted = event.message?.formatted
+                    ?.replace(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"), "[UUID]", RegexOption.IGNORE_CASE)
+                    ?.replace(Regex("[0-9a-fA-F]{64}"), "[KEY]")
+                    ?.replace(Regex("https?://[\\w.:-]+"), "[URL]")
+                event
+            }
         }
     }
 }

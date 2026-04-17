@@ -69,8 +69,9 @@ class VpnViewModel @Inject constructor(
         startStateSync()
         // FIX-2-9: Auto-connect on startup if preference is enabled
         autoConnectIfEnabled()
-        // FIX-2-10: Start heartbeat loop
-        startHeartbeat()
+        // NOTE: Heartbeat is handled by VpnManager.startHeartbeat() which includes
+        // key rotation, quality reports, and session-invalid disconnect. No redundant
+        // heartbeat needed here — VpnManager is the authoritative keepalive source.
     }
 
     /**
@@ -108,33 +109,6 @@ class VpnViewModel @Inject constructor(
 
     private fun tracing(msg: String) {
         android.util.Log.d("VpnViewModel", msg)
-    }
-
-    /**
-     * FIX-2-10: Periodic heartbeat while connected.
-     * Calls backend heartbeat every 30s to report connection health and detect
-     * revoked keys. If server responds with 401, forces disconnect (session expired).
-     */
-    private fun startHeartbeat() {
-        viewModelScope.launch {
-            while (isActive) {
-                delay(30_000) // 30 seconds
-                if (vpnManager.state.value == VpnState.Connected) {
-                    try {
-                        val result = repository.sendHeartbeat()
-                        if (result is ApiResult.Error && result.code == 401) {
-                            tracing("Heartbeat got 401 — session expired, disconnecting")
-                            vpnManager.disconnect()
-                            _uiState.value = _uiState.value.copy(
-                                error = "Session expired — please log in again",
-                            )
-                        }
-                    } catch (e: Exception) {
-                        tracing("Heartbeat failed: ${e.message}")
-                    }
-                }
-            }
-        }
     }
 
     // FIX-2-12: Reactive state sync via StateFlow collection.

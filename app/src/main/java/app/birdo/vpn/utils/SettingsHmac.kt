@@ -61,11 +61,26 @@ object SettingsHmac {
 
     /**
      * Verify HMAC of current protected settings.
-     * Returns true if HMAC matches (settings untampered) or if no HMAC exists yet (first run).
+     *
+     * Returns true if HMAC matches (settings untampered), or if no HMAC AND no protected
+     * settings exist yet (genuine first run).
+     *
+     * SEC: Returning true when storedHmac == null regardless of settings state would allow
+     * an attacker on a rooted device to delete the HMAC file, bypassing tamper detection.
+     * We only skip verification on a true first run (no protected settings written yet).
      */
     fun verify(prefs: SharedPreferences): Boolean {
         val storedHmac = prefs.getString(HMAC_PREF_KEY, null)
-            ?: return true // First run — no HMAC stored yet
+        if (storedHmac == null) {
+            // Only a genuine first run has no protected settings AND no HMAC.
+            // If settings are already present without an HMAC, the HMAC was likely deleted.
+            val hasProtectedSettings = PROTECTED_KEYS.any { key -> prefs.contains(key) }
+            if (hasProtectedSettings) {
+                Log.e(TAG, "Protected settings exist without HMAC — treating as tampered")
+                return false
+            }
+            return true // Genuine first run
+        }
 
         return try {
             val key = getOrCreateHmacKey()

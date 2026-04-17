@@ -245,7 +245,10 @@ class MainActivity : ComponentActivity() {
      */
     private fun verifySettingsIntegrity() {
         try {
-            val prefs = getSharedPreferences("birdo_prefs", MODE_PRIVATE)
+            // FIX: Must use same prefs file as AppPreferences ("birdo_vpn_prefs")
+            // Using wrong file name means HMAC is checked against an empty file —
+            // tampered settings in the real file are never detected.
+            val prefs = getSharedPreferences("birdo_vpn_prefs", MODE_PRIVATE)
             if (!SettingsHmac.verify(prefs)) {
                 Log.e("BirdoSecurity", "Settings HMAC mismatch — resetting to safe defaults")
                 prefs.edit()

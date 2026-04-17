@@ -3,7 +3,7 @@ package app.birdo.vpn.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.birdo.vpn.data.model.UserProfile
-import app.birdo.vpn.data.model.LoginResult
+import app.birdo.vpn.shared.model.LoginResult
 import app.birdo.vpn.data.repository.ApiResult
 import app.birdo.vpn.data.repository.BirdoRepository
 import app.birdo.vpn.utils.InputValidator

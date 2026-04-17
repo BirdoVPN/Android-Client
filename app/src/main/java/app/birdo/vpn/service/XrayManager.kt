@@ -108,6 +108,24 @@ object XrayManager {
             return@withContext false
         }
 
+        // SEC: Validate Xray parameter formats before using them in config generation.
+        // An MitM or compromised server response could send malformed values.
+        val uuidRegex = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", RegexOption.IGNORE_CASE)
+        val hexKeyRegex = Regex("^[0-9a-fA-F]{64}$")      // Curve25519 public key (64 hex chars)
+        val shortIdRegex = Regex("^[0-9a-fA-F]{0,16}$")   // Reality shortId: 0–8 bytes hex
+        if (!uuidRegex.matches(xrayUuid)) {
+            Log.e(TAG, "Invalid Xray UUID format — rejecting connection")
+            return@withContext false
+        }
+        if (!hexKeyRegex.matches(xrayPublicKey)) {
+            Log.e(TAG, "Invalid Xray public key format (expected 64 hex chars) — rejecting")
+            return@withContext false
+        }
+        if (!shortIdRegex.matches(xrayShortId)) {
+            Log.e(TAG, "Invalid Xray shortId format (expected ≤16 hex chars) — rejecting")
+            return@withContext false
+        }
+
         // Parse server endpoint
         val (serverHost, serverPort) = parseEndpoint(xrayEndpoint)
         if (serverHost == null) {
