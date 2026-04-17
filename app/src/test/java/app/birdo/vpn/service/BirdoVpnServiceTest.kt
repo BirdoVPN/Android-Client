@@ -53,14 +53,26 @@ class BirdoVpnServiceTest {
     private fun resetCompanionState() {
         updateStateMethod.invoke(BirdoVpnService.Companion, VpnState.Disconnected)
 
-        // Reset volatile fields via reflection
-        setCompanionField("connectedServer", null)
-        setCompanionField("connectedSince", 0L)
-        setCompanionField("killSwitchActive", false)
-        setCompanionField("publicIp", null)
-        setCompanionField("rxBytes", 0L)
-        setCompanionField("txBytes", 0L)
+        // Reset MutableStateFlow-backed fields via reflection
+        resetStateFlow("_connectedServerFlow", null)
+        resetStateFlow("_connectedSinceFlow", 0L)
+        resetStateFlow("_killSwitchActiveFlow", false)
+        resetStateFlow("_publicIpFlow", null)
+        resetStateFlow("_rxBytesFlow", 0L)
+        resetStateFlow("_txBytesFlow", 0L)
         setCompanionField("activeConfig", null)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun resetStateFlow(name: String, value: Any?) {
+        try {
+            val field = BirdoVpnService.Companion::class.java.getDeclaredField(name)
+            field.isAccessible = true
+            val flow = field.get(BirdoVpnService.Companion) as kotlinx.coroutines.flow.MutableStateFlow<Any?>
+            flow.value = value
+        } catch (_: NoSuchFieldException) {
+            // Field absent — no-op
+        }
     }
 
     private fun setCompanionField(name: String, value: Any?) {
@@ -70,9 +82,13 @@ class BirdoVpnServiceTest {
             field.set(BirdoVpnService.Companion, value)
         } catch (_: NoSuchFieldException) {
             // Some fields are Kotlin properties — try the backing field via the class itself
-            val field = BirdoVpnService::class.java.getDeclaredField(name)
-            field.isAccessible = true
-            field.set(null, value) // static field
+            try {
+                val field = BirdoVpnService::class.java.getDeclaredField(name)
+                field.isAccessible = true
+                field.set(null, value) // static field
+            } catch (_: NoSuchFieldException) {
+                // Field no longer exists after refactor — ignore
+            }
         }
     }
 
@@ -135,6 +151,7 @@ class BirdoVpnServiceTest {
                 is VpnState.Connected     -> "connected"
                 is VpnState.Disconnecting -> "disconnecting"
                 is VpnState.Error         -> "error:${state.message}"
+                else                      -> "other:${state::class.simpleName}"
             }
             assertNotNull(label)
         }

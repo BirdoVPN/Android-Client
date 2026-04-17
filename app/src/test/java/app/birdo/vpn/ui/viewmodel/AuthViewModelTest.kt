@@ -4,6 +4,7 @@ import app.birdo.vpn.data.model.LoginResult
 import app.birdo.vpn.data.model.TokenPair
 import app.birdo.vpn.data.model.TwoFactorVerifyResponse
 import app.birdo.vpn.data.model.UserProfile
+import app.birdo.vpn.shared.model.LoginResult as SharedLoginResult
 import app.birdo.vpn.data.repository.ApiResult
 import app.birdo.vpn.data.repository.BirdoRepository
 import io.mockk.coEvery
@@ -27,8 +28,8 @@ class AuthViewModelTest {
     // ── Fixtures ─────────────────────────────────────────────────
 
     private val tokens = TokenPair("access_tok", "refresh_tok")
-    private val loginSuccess = LoginResult.Success(ok = true, tokens = tokens)
-    private val twoFactorChallenge = LoginResult.TwoFactorRequired(
+    private val loginSuccess = SharedLoginResult.Success(ok = true, tokens = tokens)
+    private val twoFactorChallenge = SharedLoginResult.TwoFactorRequired(
         requiresTwoFactor = true,
         challengeToken = "challenge_abc123",
     )
@@ -854,7 +855,7 @@ class AuthViewModelTest {
         assertFalse(viewModel.uiState.value.requiresTwoFactor)
 
         // Re-login triggers new 2FA
-        val newChallenge = LoginResult.TwoFactorRequired(true, "challenge_new")
+        val newChallenge = SharedLoginResult.TwoFactorRequired(true, "challenge_new")
         coEvery { repository.login(any(), any()) } returns ApiResult.Success(newChallenge)
         viewModel.login("user@birdo.app", "password")
 

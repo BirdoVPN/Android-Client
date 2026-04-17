@@ -3,6 +3,7 @@ package app.birdo.vpn.data.repository
 import app.birdo.vpn.data.api.BirdoApi
 import app.birdo.vpn.data.auth.TokenManager
 import app.birdo.vpn.data.model.*
+import app.birdo.vpn.shared.model.LoginResult
 import app.birdo.vpn.utils.InputValidator
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -60,10 +61,11 @@ class BirdoRepository @Inject constructor(
                 val result = body.toLoginResult()
                 // Only store tokens when login is fully complete (no 2FA pending)
                 if (result is LoginResult.Success) {
-                    if (result.tokens.accessToken.isBlank()) {
+                    val tokens = result.tokens
+                    if (tokens.accessToken.isBlank()) {
                         return ApiResult.Error("Unexpected server response (no tokens)", 0)
                     }
-                    tokenManager.setTokens(result.tokens.accessToken, result.tokens.refreshToken)
+                    tokenManager.setTokens(tokens.accessToken, tokens.refreshToken)
                 }
                 ApiResult.Success(result)
             } else {
@@ -85,8 +87,9 @@ class BirdoRepository @Inject constructor(
             val response = api.verifyTwoFactor(TwoFactorVerifyRequest(challengeToken, code))
             if (response.isSuccessful && response.body() != null) {
                 val body = response.body()!!
-                if (body.ok && body.tokens != null) {
-                    tokenManager.setTokens(body.tokens.accessToken, body.tokens.refreshToken)
+                val tokens = body.tokens
+                if (body.ok && tokens != null) {
+                    tokenManager.setTokens(tokens.accessToken, tokens.refreshToken)
                 }
                 ApiResult.Success(body)
             } else {

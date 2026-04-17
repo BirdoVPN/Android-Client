@@ -40,7 +40,7 @@ class BirdoApp : Application() {
             // stack traces or breadcrumb messages captured during connection setup.
             options.beforeSend = io.sentry.SentryOptions.BeforeSendCallback { event, _ ->
                 event.message?.formatted = event.message?.formatted
-                    ?.replace(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"), "[UUID]", RegexOption.IGNORE_CASE)
+                    ?.replace(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", RegexOption.IGNORE_CASE), "[UUID]")
                     ?.replace(Regex("[0-9a-fA-F]{64}"), "[KEY]")
                     ?.replace(Regex("https?://[\\w.:-]+"), "[URL]")
                 event

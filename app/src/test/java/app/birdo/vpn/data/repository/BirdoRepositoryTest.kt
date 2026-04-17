@@ -3,6 +3,7 @@ package app.birdo.vpn.data.repository
 import app.birdo.vpn.data.api.BirdoApi
 import app.birdo.vpn.data.auth.TokenManager
 import app.birdo.vpn.data.model.*
+import app.birdo.vpn.shared.model.LoginResult
 import io.mockk.*
 import kotlinx.coroutines.test.runTest
 import okhttp3.MediaType.Companion.toMediaType
