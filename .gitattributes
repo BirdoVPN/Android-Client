@@ -1,0 +1,5 @@
+# Force LF for all shell scripts so they work on Linux/macOS runners
+*.sh        text eol=lf
+gradlew     text eol=lf
+*.bat       text eol=crlf
+gradlew.bat text eol=crlf
