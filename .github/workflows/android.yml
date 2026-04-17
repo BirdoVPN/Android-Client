@@ -3,12 +3,39 @@ name: Mobile CI (Android + iOS)
 on:
   push:
     branches: [main, develop]
+    tags:
+      - 'android-v*'   # e.g. android-v1.2.0 — triggers release + Play Store upload
   pull_request:
     branches: [main]
 
 # FIX CI: Minimum permissions by default
 permissions:
   contents: read
+
+# ── Azure Key Vault (release signing) ──────────────────────────────────────────
+# The release and release-aab jobs retrieve the Android signing keystore from
+# Azure Key Vault using OIDC federation — no stored credentials in GitHub secrets.
+#
+# Required GitHub repository SECRETS:
+#   AZURE_TENANT_ID   — Azure Active Directory tenant ID
+#   AZURE_CLIENT_ID   — App registration (service principal) client ID
+#
+# Required GitHub repository VARIABLES (Settings → Secrets and variables → Variables):
+#   AZURE_KEY_VAULT_NAME  — Key Vault name, e.g. "birdovpn-keyvault"
+#
+# Required Azure Key Vault secrets (create in Azure Portal or via az CLI):
+#   android-keystore-base64   — base64-encoded release .jks keystore
+#   android-store-password    — keystore password
+#   android-key-alias         — signing key alias
+#   android-key-password      — signing key password
+#
+# OIDC federated credential (add under App Registration → Certificates & secrets →
+# Federated credentials with issuer https://token.actions.githubusercontent.com):
+#   Subject for main-branch builds:  repo:<org>/<repo>:ref:refs/heads/main
+#   Subject for tag-triggered builds: repo:<org>/<repo>:ref:refs/tags/*
+#
+# Role assignment: grant the app "Key Vault Secrets User" on the Key Vault resource.
+# ───────────────────────────────────────────────────────────────────────────────
 
 env:
   JAVA_VERSION: '17'
@@ -135,10 +162,21 @@ jobs:
     name: Build Release APK
     runs-on: ubuntu-latest
     needs: [lint, test]
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v')
+    # Azure OIDC setup (keystore retrieved from Azure Key Vault — no GitHub secrets needed):
+    #   Secrets:   AZURE_TENANT_ID, AZURE_CLIENT_ID
+    #   Variables: AZURE_KEY_VAULT_NAME  (e.g. "birdovpn-keyvault")
+    # Key Vault secrets required (names are case-sensitive):
+    #   android-keystore-base64   — base64-encoded release keystore (.jks)
+    #   android-store-password    — keystore password
+    #   android-key-alias         — signing key alias inside the keystore
+    #   android-key-password      — signing key password
+    # OIDC federated credential subject (add in Azure App Registration):
+    #   repo:<org>/<repo>:ref:refs/heads/main
+    #   repo:<org>/<repo>:ref:refs/tags/*
     permissions:
       contents: read
-      id-token: write  # Required for Sigstore keyless signing (Fulcio OIDC)
+      id-token: write  # Required for both Sigstore (Fulcio OIDC) and Azure AD OIDC
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -157,19 +195,51 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: gradle-${{ runner.os }}-
 
-      - name: Decode Keystore
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        # SEC: Write keystore to $RUNNER_TEMP (not workspace) so it's not
-        # accidentally committed, cached, or uploaded as an artifact.
-        run: echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/birdo-release.jks"
+      # Log in to Azure using OIDC — no stored client secrets required.
+      - name: Azure Login (OIDC)
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
+        with:
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          allow-no-subscriptions: true
+
+      # Retrieve encrypted keystore + signing credentials from Azure Key Vault.
+      # SEC: All secrets are masked with ::add-mask:: so they never appear in logs.
+      # The keystore file is written to $RUNNER_TEMP (not the workspace) to prevent
+      # accidental artifact upload or caching.
+      - name: Retrieve Android keystore from Azure Key Vault
+        run: |
+          KS_B64=$(az keyvault secret show \
+            --vault-name "${{ vars.AZURE_KEY_VAULT_NAME }}" \
+            --name "android-keystore-base64" \
+            --query value --output tsv)
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/birdo-release.jks"
+          echo "RELEASE_STORE_FILE=$RUNNER_TEMP/birdo-release.jks" >> "$GITHUB_ENV"
+
+          STORE_PASS=$(az keyvault secret show \
+            --vault-name "${{ vars.AZURE_KEY_VAULT_NAME }}" \
+            --name "android-store-password" \
+            --query value --output tsv)
+          echo "::add-mask::$STORE_PASS"
+          echo "RELEASE_STORE_PASSWORD=$STORE_PASS" >> "$GITHUB_ENV"
+
+          KEY_ALIAS=$(az keyvault secret show \
+            --vault-name "${{ vars.AZURE_KEY_VAULT_NAME }}" \
+            --name "android-key-alias" \
+            --query value --output tsv)
+          echo "::add-mask::$KEY_ALIAS"
+          echo "RELEASE_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+
+          KEY_PASS=$(az keyvault secret show \
+            --vault-name "${{ vars.AZURE_KEY_VAULT_NAME }}" \
+            --name "android-key-password" \
+            --query value --output tsv)
+          echo "::add-mask::$KEY_PASS"
+          echo "RELEASE_KEY_PASSWORD=$KEY_PASS" >> "$GITHUB_ENV"
 
       - name: Build Release APK
-        env:
-          RELEASE_STORE_FILE: ${{ runner.temp }}/birdo-release.jks
-          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
-          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        # RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD
+        # are set as GITHUB_ENV by the Azure Key Vault step above.
         run: ./gradlew assembleRelease
 
       - name: Clean up keystore
@@ -221,10 +291,10 @@ jobs:
     name: Build Release AAB
     runs-on: ubuntu-latest
     needs: [lint, test]
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v')
     permissions:
       contents: read
-      id-token: write  # Required for Sigstore keyless signing
+      id-token: write  # Required for both Sigstore (Fulcio OIDC) and Azure AD OIDC
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -243,17 +313,50 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: gradle-${{ runner.os }}-
 
-      - name: Decode Keystore
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        run: echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/birdo-release.jks"
+      # Log in to Azure using OIDC — no stored client secrets required.
+      - name: Azure Login (OIDC)
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
+        with:
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          allow-no-subscriptions: true
+
+      # SEC: All secrets are masked with ::add-mask:: so they never appear in logs.
+      # The keystore file is written to $RUNNER_TEMP (not the workspace) to prevent
+      # accidental artifact upload or caching.
+      - name: Retrieve Android keystore from Azure Key Vault
+        run: |
+          KS_B64=$(az keyvault secret show \
+            --vault-name "${{ vars.AZURE_KEY_VAULT_NAME }}" \
+            --name "android-keystore-base64" \
+            --query value --output tsv)
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/birdo-release.jks"
+          echo "RELEASE_STORE_FILE=$RUNNER_TEMP/birdo-release.jks" >> "$GITHUB_ENV"
+
+          STORE_PASS=$(az keyvault secret show \
+            --vault-name "${{ vars.AZURE_KEY_VAULT_NAME }}" \
+            --name "android-store-password" \
+            --query value --output tsv)
+          echo "::add-mask::$STORE_PASS"
+          echo "RELEASE_STORE_PASSWORD=$STORE_PASS" >> "$GITHUB_ENV"
+
+          KEY_ALIAS=$(az keyvault secret show \
+            --vault-name "${{ vars.AZURE_KEY_VAULT_NAME }}" \
+            --name "android-key-alias" \
+            --query value --output tsv)
+          echo "::add-mask::$KEY_ALIAS"
+          echo "RELEASE_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+
+          KEY_PASS=$(az keyvault secret show \
+            --vault-name "${{ vars.AZURE_KEY_VAULT_NAME }}" \
+            --name "android-key-password" \
+            --query value --output tsv)
+          echo "::add-mask::$KEY_PASS"
+          echo "RELEASE_KEY_PASSWORD=$KEY_PASS" >> "$GITHUB_ENV"
 
       - name: Build Release AAB
-        env:
-          RELEASE_STORE_FILE: ${{ runner.temp }}/birdo-release.jks
-          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
-          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        # RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD
+        # are set as GITHUB_ENV by the Azure Key Vault step above.
         run: ./gradlew bundleRelease
 
       - name: Clean up keystore
@@ -278,3 +381,54 @@ jobs:
           path: |
             app/build/outputs/bundle/release/*.aab
             app/build/outputs/bundle/release/*.sigstore
+
+  # ── Google Play Store Upload (internal track) ──────────────────────
+  # Triggers ONLY on android-v* tags. Uploads the signed AAB to the Play
+  # Console "internal" testing track. Promote manually to closed/open/prod.
+  #
+  # Required GitHub repository SECRETS:
+  #   PLAY_SERVICE_ACCOUNT_JSON  — full JSON of a Google Play service account
+  #                                with "Release manager" permission on the app.
+  #
+  # The service account is created in Google Cloud Console, then granted
+  # access in Play Console → Setup → API access. The package name below must
+  # match the one declared in app/build.gradle.kts (applicationId).
+  play-store:
+    name: Upload to Play Console (internal)
+    runs-on: ubuntu-latest
+    needs: release-aab
+    if: startsWith(github.ref, 'refs/tags/android-v')
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Download release AAB
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-aab
+          path: release-aab/
+
+      - name: Locate AAB
+        id: locate
+        run: |
+          AAB=$(find release-aab -name '*.aab' | head -1)
+          if [ -z "$AAB" ]; then
+            echo "::error::No AAB found in release-aab/"
+            exit 1
+          fi
+          echo "aab=$AAB" >> "$GITHUB_OUTPUT"
+
+      - name: Upload AAB to Google Play (internal track)
+        uses: r0adkll/upload-google-play@935ef9c68bb393a8e6116b1575626a7f5be3a7fb # v1.1.3
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: app.birdo.vpn
+          releaseFiles: ${{ steps.locate.outputs.aab }}
+          track: internal
+          status: completed
+          inAppUpdatePriority: 2
+          # mappingFile: app/build/outputs/mapping/release/mapping.txt
+          # whatsNewDirectory: distribution/whatsnew
+
+
