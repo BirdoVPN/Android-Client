@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.security.MessageDigest
 
 plugins {
     id("com.android.application")
@@ -139,9 +140,9 @@ afterEvaluate {
                         val soFile = candidates.firstOrNull { it.path.contains("arm64-v8a") }
                             ?: candidates.firstOrNull()
                             ?: return ""
-                        return java.security.MessageDigest.getInstance("SHA-256")
+                        return MessageDigest.getInstance("SHA-256")
                             .digest(soFile.readBytes())
-                            .joinToString("") { "%02x".format(it) }
+                            .joinToString("") { b -> "%02x".format(b) }
                     }
                     val wgHash = hashSo("wg-go")
                     val xrayHash = hashSo("Xray")
