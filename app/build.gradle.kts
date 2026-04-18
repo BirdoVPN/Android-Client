@@ -42,7 +42,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "API_BASE_URL", "\"https://birdo.app/api\"")
+        buildConfigField("String", "API_BASE_URL", "\"https://api.birdo.app\"")
         buildConfigField("String", "APP_VERSION", "\"$computedVersionName\"")
         // Sentry DSN — loaded from local.properties (dev) or CI environment variable
         val sentryDsn = localProperties.getProperty("SENTRY_DSN")
