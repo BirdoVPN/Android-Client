@@ -42,7 +42,7 @@ In scope:
 - Source code under this repository (Android `app/`, iOS `iosApp/`, KMP
   `shared/`).
 - The CI/CD workflows under `.github/workflows/`.
-- Build/release tooling that ships in shipped artifacts.
+- Build/release tooling included in shipped artifacts.
 
 Out of scope (please report to the appropriate vendor):
 
