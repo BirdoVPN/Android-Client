@@ -1,21 +1,37 @@
 import NetworkExtension
 import Security
+import WireGuardKit
 import os.log
 
 /// WireGuard packet tunnel provider.
 ///
-/// Hardened parsing:
+/// Production wiring:
+/// - Uses `WireGuardAdapter` from WireGuardKit to drive the Go tunnel runtime.
 /// - PrivateKey & PresharedKey are read from the **shared App Group keychain**
 ///   (the host app's `VPNManager` writes them there on connect) so they
 ///   never appear in the NEVPN preferences plaintext blob.
 /// - All `os_log` calls use `%{private}@` for any string derived from the
 ///   config so secrets stay marked-private in sysdiagnose.
-/// - IPv4 / IPv6 routing honours per-address CIDR prefixes instead of
-///   hard-coding /24 and /128.
-/// - Allowed-IP CIDRs become individual `NEIPv4Route` / `NEIPv6Route` entries
-///   so split-tunnelling becomes a one-line config swap upstream.
+/// - Forwards `NEPacketTunnelProvider` → adapter network-settings calls,
+///   honouring per-address CIDR for both IPv4 and IPv6.
+/// - Implements live transfer-stats IPC for the host app (`stats` message).
 class PacketTunnelProvider: NEPacketTunnelProvider {
     private let log = OSLog(subsystem: "app.birdo.vpn.tunnel", category: "tunnel")
+
+    private lazy var adapter: WireGuardAdapter = {
+        WireGuardAdapter(with: self) { [weak self] level, message in
+            guard let self else { return }
+            // Map WireGuardKit log levels onto os_log; NEVER include the
+            // raw message at .info/.error in production builds because it
+            // can include endpoints. Mark private.
+            let type: OSLogType
+            switch level {
+            case .verbose: type = .debug
+            case .error:   type = .error
+            }
+            os_log("wg: %{private}@", log: self.log, type: type, message)
+        }
+    }()
 
     override func startTunnel(
         options: [String: NSObject]?,
@@ -30,9 +46,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
 
-        // Read the WireGuard private key out of the shared keychain. The
-        // ref id is supplied via providerConfiguration; the secret itself
-        // is NEVER stored there.
+        // Read secrets out of the shared keychain. The IDs are passed via
+        // providerConfiguration; the actual material never appears there.
         let privateKeyRef = (proto.providerConfiguration?["wg-private-key-ref"] as? String) ?? "wg_private_key"
         let presharedKeyRef = (proto.providerConfiguration?["wg-preshared-key-ref"] as? String) ?? ""
 
@@ -45,83 +60,39 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             ? nil
             : readSharedKeychain(account: presharedKeyRef)
 
-        guard let parsed = parseWireGuardConfig(configString) else {
-            os_log("Invalid WireGuard config", log: log, type: .error)
+        // Reconstruct a complete `wg-quick` config (with the keys) and parse
+        // it into a WireGuardKit `TunnelConfiguration`. The reconstructed
+        // string is NEVER persisted — it lives only in this stack frame
+        // until WireGuardAdapter copies it into the Go runtime.
+        let fullConfigString = injectSecrets(
+            into: configString,
+            privateKey: privateKey,
+            presharedKey: presharedKey
+        )
+
+        let tunnelConfiguration: TunnelConfiguration
+        do {
+            tunnelConfiguration = try TunnelConfiguration(
+                fromWgQuickConfig: fullConfigString,
+                called: "birdo"
+            )
+        } catch {
+            os_log("Failed to parse tunnel config: %{public}@",
+                   log: log, type: .error, error.localizedDescription)
             completionHandler(TunnelError.invalidConfig)
             return
         }
 
-        let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: parsed.endpointHost)
-        settings.mtu = NSNumber(value: parsed.mtu)
-
-        // IPv4 — derive the subnet mask from each address's CIDR prefix.
-        let ipv4Pairs: [(String, String)] = parsed.addresses.compactMap { addr in
-            guard addr.contains("."), let pair = ipv4SplitCIDR(addr) else { return nil }
-            return pair
-        }
-        if !ipv4Pairs.isEmpty {
-            let ipv4 = NEIPv4Settings(
-                addresses: ipv4Pairs.map { $0.0 },
-                subnetMasks: ipv4Pairs.map { $0.1 }
-            )
-            ipv4.includedRoutes = parsed.allowedIPs
-                .compactMap { ipv4Route(from: $0) }
-                .ifEmpty([NEIPv4Route.default()])
-            settings.ipv4Settings = ipv4
-        }
-
-        // IPv6 — honour the per-address prefix length (default 128).
-        let ipv6Pairs: [(String, NSNumber)] = parsed.addresses.compactMap { addr in
-            guard addr.contains(":"), let pair = ipv6SplitCIDR(addr) else { return nil }
-            return (pair.0, NSNumber(value: pair.1))
-        }
-        if !ipv6Pairs.isEmpty {
-            let ipv6 = NEIPv6Settings(
-                addresses: ipv6Pairs.map { $0.0 },
-                networkPrefixLengths: ipv6Pairs.map { $0.1 }
-            )
-            ipv6.includedRoutes = parsed.allowedIPs
-                .compactMap { ipv6Route(from: $0) }
-                .ifEmpty([NEIPv6Route.default()])
-            settings.ipv6Settings = ipv6
-        }
-
-        if !parsed.dns.isEmpty {
-            let dnsSettings = NEDNSSettings(servers: parsed.dns)
-            // Force every DNS query through the tunnel — prevents leaks.
-            dnsSettings.matchDomains = [""]
-            settings.dnsSettings = dnsSettings
-        }
-
-        setTunnelNetworkSettings(settings) { [weak self] error in
-            if let error {
-                os_log("Failed to set tunnel settings: %{public}@",
-                       log: self?.log ?? .default, type: .error,
-                       error.localizedDescription)
-                completionHandler(error)
+        adapter.start(tunnelConfiguration: tunnelConfiguration) { [weak self] adapterError in
+            guard let self else { return }
+            if let adapterError {
+                os_log("Adapter start failed: %{public}@",
+                       log: self.log, type: .error,
+                       String(describing: adapterError))
+                completionHandler(TunnelError.adapterFailed(String(describing: adapterError)))
                 return
             }
-
-            // TODO: Start WireGuardKit tunnel adapter here.
-            //
-            // Production wiring once `WireGuardKit` is added via SwiftPM:
-            //
-            //   let tunnelConfig = try TunnelConfiguration(
-            //       fromUapiConfig: self.buildUapi(parsed: parsed,
-            //                                      privateKey: privateKey,
-            //                                      presharedKey: presharedKey),
-            //       called: "birdo")
-            //   self.adapter = WireGuardAdapter(with: self) { _, msg in /* ... */ }
-            //   self.adapter.start(tunnelConfiguration: tunnelConfig) { err in
-            //       completionHandler(err)
-            //   }
-            //
-            // Until WireGuardKit lands, returning success here keeps
-            // network settings applied so QA can validate routing & DNS.
-            os_log("Tunnel settings applied (peer key %{private}@)",
-                   log: self?.log ?? .default, type: .info, parsed.publicKey)
-            _ = privateKey   // referenced so compiler doesn't warn; consumed by adapter above
-            _ = presharedKey
+            os_log("Tunnel up", log: self.log, type: .info)
             completionHandler(nil)
         }
     }
@@ -131,27 +102,82 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         completionHandler: @escaping () -> Void
     ) {
         os_log("Stopping tunnel, reason: %{public}d", log: log, type: .info, reason.rawValue)
-        // TODO: adapter.stop { completionHandler() }
-        completionHandler()
+        adapter.stop { [weak self] error in
+            if let error {
+                os_log("Adapter stop failed: %{public}@",
+                       log: self?.log ?? .default, type: .error,
+                       String(describing: error))
+            }
+            completionHandler()
+        }
     }
 
+    /// IPC from the host app. Supported commands:
+    ///   "stats" → JSON `{ "rx": <bytes>, "tx": <bytes> }`
+    ///   "ping"  → JSON `{ "ok": true }`
     override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
-        if let command = String(data: messageData, encoding: .utf8) {
-            switch command {
-            case "stats":
-                let stats = """
-                {"rx": 0, "tx": 0}
-                """
-                completionHandler?(stats.data(using: .utf8))
-            default:
-                completionHandler?(nil)
+        guard let command = String(data: messageData, encoding: .utf8) else {
+            completionHandler?(nil)
+            return
+        }
+        switch command {
+        case "stats":
+            adapter.getRuntimeConfiguration { [weak self] config in
+                guard let config else {
+                    completionHandler?(self?.encodeStats(rx: 0, tx: 0))
+                    return
+                }
+                let (rx, tx) = self?.parseTransferStats(uapiConfig: config) ?? (0, 0)
+                completionHandler?(self?.encodeStats(rx: rx, tx: tx))
             }
-        } else {
+        case "ping":
+            completionHandler?(#"{"ok":true}"#.data(using: .utf8))
+        default:
             completionHandler?(nil)
         }
     }
 
-    // MARK: - Shared Keychain Read
+    // MARK: - Helpers
+
+    private func encodeStats(rx: Int64, tx: Int64) -> Data {
+        let json = #"{"rx":\#(rx),"tx":\#(tx)}"#
+        return json.data(using: .utf8) ?? Data()
+    }
+
+    /// Sum `rx_bytes=` / `tx_bytes=` lines from the wg-go UAPI dump.
+    private func parseTransferStats(uapiConfig: String) -> (rx: Int64, tx: Int64) {
+        var rx: Int64 = 0
+        var tx: Int64 = 0
+        for line in uapiConfig.split(separator: "\n") {
+            if line.hasPrefix("rx_bytes=") {
+                rx &+= Int64(line.dropFirst("rx_bytes=".count)) ?? 0
+            } else if line.hasPrefix("tx_bytes=") {
+                tx &+= Int64(line.dropFirst("tx_bytes=".count)) ?? 0
+            }
+        }
+        return (rx, tx)
+    }
+
+    /// Build a wg-quick string by re-inserting the secrets pulled from the
+    /// shared keychain. Idempotent: if the input already contains a
+    /// `PrivateKey =` line we do not duplicate it.
+    private func injectSecrets(into config: String, privateKey: String, presharedKey: String?) -> String {
+        var lines = config.components(separatedBy: "\n")
+        // Insert PrivateKey after the [Interface] header if not present.
+        if !lines.contains(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("PrivateKey") }) {
+            if let idx = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "[Interface]" }) {
+                lines.insert("PrivateKey = \(privateKey)", at: idx + 1)
+            }
+        }
+        // Insert PresharedKey after the [Peer] header if we have one and it isn't already present.
+        if let psk = presharedKey, !psk.isEmpty,
+           !lines.contains(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("PresharedKey") }) {
+            if let idx = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "[Peer]" }) {
+                lines.insert("PresharedKey = \(psk)", at: idx + 1)
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
 
     /// Read a shared-keychain string by account, scoped to the
     /// `app.birdo.vpn.shared` service that the host app writes to.
@@ -170,125 +196,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess, let data = result as? Data else { return nil }
         return String(data: data, encoding: .utf8)
-    }
-
-    // MARK: - Config Parsing
-
-    private struct ParsedConfig {
-        let addresses: [String]
-        let dns: [String]
-        let mtu: Int
-        let endpointHost: String
-        let publicKey: String
-        let allowedIPs: [String]
-    }
-
-    private func parseWireGuardConfig(_ raw: String) -> ParsedConfig? {
-        var addresses: [String] = []
-        var dns: [String] = []
-        var mtu = 1420
-        var endpointHost = ""
-        var publicKey = ""
-        var allowedIPs: [String] = []
-
-        for line in raw.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if let v = strip(trimmed, prefix: "Address") {
-                addresses.append(contentsOf: splitList(v))
-            } else if let v = strip(trimmed, prefix: "DNS") {
-                dns.append(contentsOf: splitList(v))
-            } else if let v = strip(trimmed, prefix: "MTU") {
-                mtu = Int(v) ?? 1420
-            } else if let v = strip(trimmed, prefix: "Endpoint") {
-                // Strip the port — NEPacketTunnelNetworkSettings wants host only.
-                if let colonIdx = v.lastIndex(of: ":"), v.first != "[" {
-                    endpointHost = String(v[..<colonIdx])
-                } else if v.first == "[", let close = v.firstIndex(of: "]") {
-                    endpointHost = String(v[v.index(after: v.startIndex)..<close])
-                } else {
-                    endpointHost = v
-                }
-            } else if let v = strip(trimmed, prefix: "PublicKey") {
-                publicKey = v
-            } else if let v = strip(trimmed, prefix: "AllowedIPs") {
-                allowedIPs.append(contentsOf: splitList(v))
-            }
-        }
-
-        guard !endpointHost.isEmpty, !publicKey.isEmpty, !addresses.isEmpty else {
-            return nil
-        }
-        return ParsedConfig(
-            addresses: addresses,
-            dns: dns,
-            mtu: mtu,
-            endpointHost: endpointHost,
-            publicKey: publicKey,
-            allowedIPs: allowedIPs
-        )
-    }
-
-    private func strip(_ line: String, prefix: String) -> String? {
-        let exact = "\(prefix) = "
-        if line.hasPrefix(exact) { return String(line.dropFirst(exact.count)) }
-        return nil
-    }
-
-    private func splitList(_ value: String) -> [String] {
-        value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-    }
-
-    // MARK: - CIDR helpers
-
-    /// "10.0.0.2/32" → ("10.0.0.2", "255.255.255.255")
-    private func ipv4SplitCIDR(_ addr: String) -> (String, String)? {
-        let parts = addr.split(separator: "/", maxSplits: 1)
-        let ip = String(parts[0])
-        let prefix = parts.count > 1 ? Int(parts[1]) ?? 32 : 32
-        guard (0...32).contains(prefix) else { return nil }
-        var mask: UInt32 = prefix == 0 ? 0 : 0xFFFFFFFF << (32 - prefix)
-        let b1 = (mask >> 24) & 0xFF
-        let b2 = (mask >> 16) & 0xFF
-        let b3 = (mask >> 8) & 0xFF
-        let b4 = mask & 0xFF
-        _ = mask
-        return (ip, "\(b1).\(b2).\(b3).\(b4)")
-    }
-
-    /// "fd00::1/64" → ("fd00::1", 64)
-    private func ipv6SplitCIDR(_ addr: String) -> (String, Int)? {
-        let parts = addr.split(separator: "/", maxSplits: 1)
-        let ip = String(parts[0])
-        let prefix = parts.count > 1 ? Int(parts[1]) ?? 128 : 128
-        guard (0...128).contains(prefix) else { return nil }
-        return (ip, prefix)
-    }
-
-    private func ipv4Route(from cidr: String) -> NEIPv4Route? {
-        let parts = cidr.split(separator: "/", maxSplits: 1)
-        guard let ip = parts.first.map(String.init), ip.contains(".") else { return nil }
-        let prefix = parts.count > 1 ? Int(parts[1]) ?? 0 : 32
-        if ip == "0.0.0.0" && prefix == 0 { return NEIPv4Route.default() }
-        guard let (addr, mask) = ipv4SplitCIDR(cidr) else { return nil }
-        return NEIPv4Route(destinationAddress: addr, subnetMask: mask)
-    }
-
-    private func ipv6Route(from cidr: String) -> NEIPv6Route? {
-        let parts = cidr.split(separator: "/", maxSplits: 1)
-        guard let ip = parts.first.map(String.init), ip.contains(":") else { return nil }
-        let prefix = parts.count > 1 ? Int(parts[1]) ?? 0 : 128
-        if ip == "::" && prefix == 0 { return NEIPv6Route.default() }
-        return NEIPv6Route(
-            destinationAddress: ip,
-            networkPrefixLength: NSNumber(value: prefix)
-        )
-    }
-}
-
-private extension Array {
-    /// Return `self` if non-empty, otherwise the supplied fallback.
-    func ifEmpty(_ fallback: @autoclosure () -> [Element]) -> [Element] {
-        isEmpty ? fallback() : self
     }
 }
 

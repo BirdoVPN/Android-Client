@@ -12,6 +12,14 @@ settings:
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     TARGETED_DEVICE_FAMILY: "1"
 
+# WireGuardKit ships the Go tunnel runtime + WireGuardAdapter used by both
+# the host app (for type-safe TunnelConfiguration) and the PacketTunnel
+# extension (to actually carry packets).
+packages:
+  WireGuardKit:
+    url: https://git.zx2c4.com/wireguard-apple
+    branch: master
+
 targets:
   BirdoVPN:
     type: application
@@ -39,6 +47,8 @@ targets:
           - "BirdoShared"
     dependencies:
       - target: PacketTunnel
+      - package: WireGuardKit
+        product: WireGuardKit
 
   PacketTunnel:
     type: app-extension
@@ -64,3 +74,6 @@ targets:
           - "$(inherited)"
           - "-framework"
           - "BirdoShared"
+    dependencies:
+      - package: WireGuardKit
+        product: WireGuardKit

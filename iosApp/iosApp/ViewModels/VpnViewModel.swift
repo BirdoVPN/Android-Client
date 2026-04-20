@@ -218,7 +218,7 @@ final class VpnViewModel: ObservableObject {
         statsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                let stats = self.vpnManager.currentStats()
+                let stats = await self.vpnManager.currentStats()
                 self.bytesReceived = stats.rx
                 self.bytesSent = stats.tx
             }

@@ -106,9 +106,30 @@ final class VPNManager: @unchecked Sendable {
         keychain.deleteShared(key: "wg_preshared_key")
     }
 
-    func currentStats() -> (rx: Int64, tx: Int64) {
-        // In production, query the tunnel extension via IPC for real bytes
-        return (0, 0)
+    /// Query the PacketTunnel extension for live transfer stats via the
+    /// `NETunnelProviderSession.sendProviderMessage("stats")` IPC channel.
+    /// Returns `(0, 0)` if the tunnel is down or the IPC call fails.
+    func currentStats() async -> (rx: Int64, tx: Int64) {
+        guard let session = manager?.connection as? NETunnelProviderSession,
+              session.status == .connected else {
+            return (0, 0)
+        }
+        return await withCheckedContinuation { (cont: CheckedContinuation<(Int64, Int64), Never>) in
+            do {
+                try session.sendProviderMessage(Data("stats".utf8)) { responseData in
+                    guard let data = responseData,
+                          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                        cont.resume(returning: (0, 0))
+                        return
+                    }
+                    let rx = (json["rx"] as? NSNumber)?.int64Value ?? 0
+                    let tx = (json["tx"] as? NSNumber)?.int64Value ?? 0
+                    cont.resume(returning: (rx, tx))
+                }
+            } catch {
+                cont.resume(returning: (0, 0))
+            }
+        }
     }
 
     // MARK: - Private

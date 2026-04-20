@@ -152,9 +152,23 @@ final class AuthViewModel: ObservableObject {
         }
     }
 
+    /// Begin a StoreKit 2 purchase for the given plan + billing period.
+    /// On success the user's entitlement set is refreshed so the UI flips
+    /// to the new plan immediately. Errors surface via `self.error`.
     func subscribe(plan: Plan, billing: BillingPeriod) {
-        // Trigger StoreKit purchase flow — stub for now
-        // In production, use Product.purchase() from StoreKit 2
+        let productID = StoreKitService.productID(
+            planSlug: plan.rawValue,
+            isYearly: billing == .yearly
+        )
+        isLoading = true
+        Task {
+            let store = StoreKitService.shared
+            let ok = await store.purchase(productID: productID)
+            if !ok, let storeError = store.lastError {
+                self.error = storeError
+            }
+            isLoading = false
+        }
     }
 }
 

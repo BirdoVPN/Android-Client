@@ -7,6 +7,7 @@ struct SettingsView: View {
     @EnvironmentObject var vpnVM: VpnViewModel
 
     @State private var showDeleteDialog = false
+    @State private var deletePassword = ""
 
     var body: some View {
         NavigationView {
@@ -92,11 +93,19 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .alert("Delete Account", isPresented: $showDeleteDialog) {
-                SecureField("Enter password", text: .constant(""))
+                SecureField("Enter password", text: $deletePassword)
                 Button("Delete", role: .destructive) {
-                    // TODO: Wire to authVM.deleteAccount
+                    // Password capture is currently informational only — the
+                    // backend re-authenticates via the live access token. We
+                    // wipe the entered value immediately after the call to
+                    // avoid keeping it in SwiftUI state longer than needed.
+                    authVM.deleteAccount()
+                    deletePassword = ""
                 }
-                Button("Cancel", role: .cancel) { }
+                .disabled(deletePassword.isEmpty)
+                Button("Cancel", role: .cancel) {
+                    deletePassword = ""
+                }
             } message: {
                 Text("This action is permanent and cannot be undone. All your data will be deleted.")
             }

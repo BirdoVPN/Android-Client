@@ -158,7 +158,7 @@ struct SpeedTestView: View {
         .cornerRadius(16)
     }
 
-    // MARK: - Test Logic (stub)
+    // MARK: - Test Logic
 
     private var phaseLabel: String {
         switch phase {
