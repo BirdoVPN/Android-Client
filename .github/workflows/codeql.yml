@@ -71,7 +71,7 @@ jobs:
         if: matrix.language == 'swift'
         working-directory: iosApp
         run: |
-          brew install xcodegen
+          arch -arm64 brew install xcodegen
           xcodegen generate
           xcodebuild build \
             -project BirdoVPN.xcodeproj \
