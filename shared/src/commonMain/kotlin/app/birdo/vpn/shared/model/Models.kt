@@ -29,8 +29,11 @@ sealed class LoginResult {
 data class LoginResponse(
     val ok: Boolean? = null,
     val tokens: TokenPair? = null,
-    @SerialName("requires_two_factor") val requiresTwoFactor: Boolean? = null,
-    @SerialName("challenge_token") val challengeToken: String? = null,
+    // FIX-MOBILE-COMPAT: Backend returns these as camelCase, not snake_case.
+    // Source: backend/src/auth/auth.controller.ts loginDesktop() returns
+    // `{ requiresTwoFactor: true, challengeToken }` directly (no NestJS interceptor remaps).
+    val requiresTwoFactor: Boolean? = null,
+    val challengeToken: String? = null,
 ) {
     fun toLoginResult(): LoginResult {
         return if (requiresTwoFactor == true && challengeToken != null) {
@@ -45,7 +48,8 @@ data class LoginResponse(
 
 @Serializable
 data class TwoFactorVerifyRequest(
-    @SerialName("challenge_token") val challengeToken: String,
+    // FIX-MOBILE-COMPAT: Backend Zod schema VerifyCodeSchema expects camelCase.
+    val challengeToken: String,
     val token: String,
 )
 
@@ -53,7 +57,8 @@ data class TwoFactorVerifyRequest(
 data class TwoFactorVerifyResponse(
     val ok: Boolean,
     val tokens: TokenPair? = null,
-    @SerialName("backup_code_used") val backupCodeUsed: Boolean = false,
+    // FIX-MOBILE-COMPAT: Backend two-factor.controller.ts returns camelCase.
+    val backupCodeUsed: Boolean = false,
 )
 
 @Serializable
@@ -79,15 +84,20 @@ data class UserProfile(
     val createdAt: String = "",
 )
 
+/**
+ * FIX-MOBILE-COMPAT: Realigned with backend `GET /vpn/stats` (VpnQueryService.getUsageStats).
+ * Backend returns: { plan, status, activeConnections, maxConnections, bandwidthLimitGb,
+ *                    hasPremiumServers, subscriptionEndsAt }
+ */
 @Serializable
 data class SubscriptionStatus(
     val plan: String = "RECON",
-    val status: String = "active",
-    val expiresAt: String? = null,
-    val devicesUsed: Int = 0,
-    val devicesLimit: Int = 1,
-    val bandwidthUsed: Long = 0,
-    val bandwidthLimit: Long? = null,
+    val status: String = "INACTIVE",
+    val activeConnections: Int = 0,
+    val maxConnections: Int = 1,
+    val bandwidthLimitGb: Long = 0,
+    val hasPremiumServers: Boolean = false,
+    val subscriptionEndsAt: String? = null,
 )
 
 // ─── Anonymous Login ─────────────────────────────────────────────────────────

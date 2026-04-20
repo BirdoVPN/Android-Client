@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.AltRoute
 import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
@@ -61,6 +62,9 @@ fun SettingsScreen(
     onBiometricLockChange: (Boolean) -> Unit = {},
     onThemeModeChange: (String) -> Unit = {},
     onOpenSubscription: () -> Unit = {},
+    onOpenMultiHop: () -> Unit = {},
+    onOpenPortForward: () -> Unit = {},
+    onOpenSpeedTest: () -> Unit = {},
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
     Scaffold(
@@ -207,6 +211,41 @@ fun SettingsScreen(
                         onClick = onOpenSplitTunnelApps,
                     )
                 }
+            }
+
+            // ── Advanced Section ─────────────────────────────────
+            item {
+                SectionHeader(stringResource(R.string.settings_section_advanced))
+            }
+
+            item {
+                SettingsLink(
+                    icon = Icons.AutoMirrored.Filled.AltRoute,
+                    iconColor = BirdoBlue,
+                    title = stringResource(R.string.settings_multi_hop),
+                    description = stringResource(R.string.settings_multi_hop_desc),
+                    onClick = onOpenMultiHop,
+                )
+            }
+
+            item {
+                SettingsLink(
+                    icon = Icons.Default.SwapHoriz,
+                    iconColor = BirdoBlue,
+                    title = stringResource(R.string.settings_port_forward),
+                    description = stringResource(R.string.settings_port_forward_desc),
+                    onClick = onOpenPortForward,
+                )
+            }
+
+            item {
+                SettingsLink(
+                    icon = Icons.Default.Speed,
+                    iconColor = BirdoBlue,
+                    title = stringResource(R.string.settings_speed_test),
+                    description = stringResource(R.string.settings_speed_test_desc),
+                    onClick = onOpenSpeedTest,
+                )
             }
 
             // ── Security Section ──────────────────────────────────

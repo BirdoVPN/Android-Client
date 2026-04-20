@@ -3,3 +3,30 @@ sdk.dir=C\:\\Users\\${USER}\\AppData\\Local\\Android\\Sdk
 # ── Sentry ───────────────────────────────────────────────────────
 # For crash reporting. Get your DSN from https://sentry.io
 SENTRY_DSN=
+
+# ── Release signing ──────────────────────────────────────────────
+# Required to build release APKs / AABs locally.
+# In CI (GitHub Actions), these are provided via GitHub secrets; you do NOT
+# need to add them here for CI to work.
+#
+# To create a new release keystore:
+#   keytool -genkey -v \
+#     -keystore birdo-release.jks \
+#     -keyalg RSA -keysize 4096 -validity 10000 \
+#     -alias birdo-vpn \
+#     -dname "CN=BirdoVPN, O=Birdo, C=US"
+#
+# To encode it for the KEYSTORE_BASE64 GitHub secret:
+#   base64 -w 0 birdo-release.jks   (Linux/macOS)
+#   [Convert]::ToBase64String([IO.File]::ReadAllBytes("birdo-release.jks"))  (PowerShell)
+#
+# GitHub Secrets to configure:
+#   KEYSTORE_BASE64         — base64-encoded .jks keystore file
+#   RELEASE_STORE_PASSWORD  — keystore password
+#   RELEASE_KEY_ALIAS       — key alias inside keystore (e.g. "birdo-vpn")
+#   RELEASE_KEY_PASSWORD    — key password (can be same as store password)
+#
+RELEASE_STORE_FILE=birdo-release.jks
+RELEASE_STORE_PASSWORD=
+RELEASE_KEY_ALIAS=birdo-vpn
+RELEASE_KEY_PASSWORD=

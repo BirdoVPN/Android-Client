@@ -6,7 +6,7 @@ import retrofit2.http.*
 
 /**
  * Birdo VPN backend REST API.
- * Base URL: https://birdo.app/api
+ * Base URL: https://api.birdo.app (set via BuildConfig.API_BASE_URL).
  */
 interface BirdoApi {
 
@@ -53,8 +53,13 @@ interface BirdoApi {
     @GET("auth/me")
     suspend fun getProfile(): Response<UserProfile>
 
-    /** FIX C-3: Aligned with backend route — no separate /users/subscription */
-    @GET("auth/me")
+    /**
+     * FIX-MOBILE-COMPAT: Backend has no /users/subscription. The canonical
+     * subscription/plan endpoint is GET /vpn/stats which returns
+     * { plan, status, activeConnections, maxConnections, bandwidthLimitGb,
+     *   hasPremiumServers, subscriptionEndsAt } — see VpnQueryService.getUsageStats.
+     */
+    @GET("vpn/stats")
     suspend fun getSubscription(): Response<SubscriptionStatus>
 
     // ── VPN ──────────────────────────────────────────────────────

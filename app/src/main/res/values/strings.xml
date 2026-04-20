@@ -83,6 +83,13 @@
     <string name="settings_split_tunnel_desc">Choose which apps bypass VPN</string>
     <string name="settings_manage_apps">Manage Apps</string>
     <string name="settings_apps_bypassing">%d apps bypassing VPN</string>
+    <string name="settings_section_advanced">Advanced</string>
+    <string name="settings_multi_hop">Multi-Hop (Double VPN)</string>
+    <string name="settings_multi_hop_desc">Route traffic through two servers for extra privacy</string>
+    <string name="settings_port_forward">Port Forwarding</string>
+    <string name="settings_port_forward_desc">Expose ports through your VPN tunnel</string>
+    <string name="settings_speed_test">Speed Test</string>
+    <string name="settings_speed_test_desc">Measure latency, download and upload speed</string>
     <string name="settings_section_account">Account</string>
     <string name="settings_manage_subscription">Manage Subscription</string>
     <string name="settings_privacy_policy">Privacy Policy</string>

@@ -163,7 +163,7 @@ fun SubscriptionScreen(
                                 fontWeight = FontWeight.SemiBold,
                             )
                             Text(
-                                "${currentSubscription.devicesUsed}/${currentSubscription.devicesLimit} devices used",
+                                "${currentSubscription.activeConnections}/${currentSubscription.maxConnections} devices used",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = BirdoWhite40,
                             )

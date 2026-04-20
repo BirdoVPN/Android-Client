@@ -322,21 +322,14 @@ class BirdoRepository @Inject constructor(
 
     /**
      * P1-13: Rotate WireGuard key during a long-running session.
-     * Generates a new local key pair, sends the public key to the backend,
-     * and stores the new private key in encrypted storage.
+     *
+     * FIX-MOBILE-COMPAT: Backend currently exposes no `POST vpn/connections/{keyId}/rotate`
+     * endpoint (route is planned as P3-25). Until backend ships it, return a
+     * graceful "not available" error so the auto-rotation tick in VpnManager
+     * silently keeps the existing key instead of spamming 404s.
      */
     suspend fun rotateKey(): ApiResult<KeyRotationResponse> {
-        val keyId = tokenManager.getLastKeyId() ?: return ApiResult.Error("No active key ID")
-        val keyPair = com.wireguard.crypto.KeyPair()
-        val clientPublicKey = keyPair.publicKey.toBase64()
-        val result = withAutoRefresh("Key rotation failed") {
-            api.rotateKey(keyId, KeyRotationRequest(clientPublicKey = clientPublicKey))
-        }
-        if (result is ApiResult.Success) {
-            tokenManager.setWireGuardPrivateKey(keyPair.privateKey.toBase64())
-            tokenManager.setLastKeyId(result.data.newKeyId)
-        }
-        return result
+        return ApiResult.Error("Key rotation not yet supported by backend", 501)
     }
 
     // ── Multi-Hop (Double VPN) ───────────────────────────────────

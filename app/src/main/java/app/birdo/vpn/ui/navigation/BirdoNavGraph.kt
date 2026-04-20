@@ -370,6 +370,15 @@ fun BirdoNavGraph(
                             vpnViewModel.fetchSubscription()
                             navController.navigate(Screen.Subscription.route)
                         },
+                        onOpenMultiHop = {
+                            navController.navigate(Screen.MultiHop.route)
+                        },
+                        onOpenPortForward = {
+                            navController.navigate(Screen.PortForward.route)
+                        },
+                        onOpenSpeedTest = {
+                            navController.navigate(Screen.SpeedTest.route)
+                        },
                     )
                 }
             }
@@ -419,6 +428,9 @@ fun BirdoNavGraph(
                 enterTransition = { slideInHorizontally(initialOffsetX = { it }) },
                 exitTransition = { slideOutHorizontally(targetOffsetX = { it }) },
             ) {
+                LaunchedEffect(Unit) {
+                    vpnViewModel.loadPortForwards()
+                }
                 AdaptiveContainer {
                     PortForwardScreen(
                         portForwards = vpnState.portForwards,
