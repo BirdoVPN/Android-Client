@@ -24,8 +24,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import android.app.Activity
 import android.content.Intent
 import android.provider.Settings
+import java.util.UUID
 import app.birdo.vpn.R
 import app.birdo.vpn.data.network.NetworkMonitor
 import app.birdo.vpn.data.preferences.AppPreferences
@@ -237,7 +239,7 @@ fun BirdoNavGraph(
                 exitTransition = { fadeOut() },
             ) {
                 AdaptiveContainer {
-                    val consentContext = androidx.compose.ui.platform.LocalContext.current
+                    val context = LocalContext.current
                     ConsentScreen(
                         onAccept = {
                             appPreferences.hasAcceptedPrivacyPolicy = true
@@ -246,7 +248,7 @@ fun BirdoNavGraph(
                         },
                         onDecline = {
                             // Close the app if user declines
-                            (consentContext as? android.app.Activity)?.finishAffinity()
+                            (context as? Activity)?.finishAffinity()
                         },
                     )
                 }
@@ -259,7 +261,7 @@ fun BirdoNavGraph(
                 exitTransition = { fadeOut() },
             ) {
                 AdaptiveContainer {
-                    val context = androidx.compose.ui.platform.LocalContext.current
+                    val context = LocalContext.current
                     LoginScreen(
                         isLoading = authState.isLoading,
                         error = authState.error,
@@ -269,10 +271,10 @@ fun BirdoNavGraph(
                         onClearError = { authViewModel.clearError() },
                         onCancelTwoFactor = { authViewModel.cancelTwoFactor() },
                         onLoginAnonymous = {
-                            val deviceId = android.provider.Settings.Secure.getString(
+                            val deviceId = Settings.Secure.getString(
                                 context.contentResolver,
-                                android.provider.Settings.Secure.ANDROID_ID,
-                            ) ?: java.util.UUID.randomUUID().toString()
+                                Settings.Secure.ANDROID_ID,
+                            ) ?: UUID.randomUUID().toString()
                             authViewModel.loginAnonymous(deviceId)
                         },
                         onSignUp = {

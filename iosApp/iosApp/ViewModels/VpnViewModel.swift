@@ -34,7 +34,11 @@ final class VpnViewModel: ObservableObject {
     private let vpnManager: VPNManager
     private var statsTimer: Timer?
 
-    init(api: APIClient = .shared, vpnManager: VPNManager = .shared) {
+    convenience init() {
+        self.init(api: .shared, vpnManager: .shared)
+    }
+
+    init(api: APIClient, vpnManager: VPNManager) {
         self.api = api
         self.vpnManager = vpnManager
 
@@ -105,10 +109,8 @@ final class VpnViewModel: ObservableObject {
             do {
                 let config = try await api.getConnectConfig(serverId: server.id)
                 try await vpnManager.connect(config: config)
-                connectedSince = Date()
-                isConnected = true
-                isConnecting = false
-                startStatsTimer()
+                // Connection state is driven by vpnManager.onStatusChange -> handleStatusChange.
+                // Do not set connectedSince/isConnected/isConnecting here to avoid races.
             } catch {
                 self.error = error.localizedDescription
                 isConnecting = false
@@ -136,10 +138,7 @@ final class VpnViewModel: ObservableObject {
             do {
                 let config = try await api.getMultiHopConfig(entryId: entryId, exitId: exitId)
                 try await vpnManager.connect(config: config)
-                connectedSince = Date()
-                isConnected = true
-                isConnecting = false
-                startStatsTimer()
+                // Connection state is updated via status callback (handleStatusChange).
             } catch {
                 self.error = error.localizedDescription
                 isConnecting = false
@@ -228,10 +227,14 @@ final class VpnViewModel: ObservableObject {
         }
     }
 
+    private var isUpdatingStats = false
+
     private func startStatsTimer() {
         statsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self, !self.isUpdatingStats else { return }
+            self.isUpdatingStats = true
             Task { @MainActor in
-                guard let self else { return }
+                defer { self.isUpdatingStats = false }
                 let stats = await self.vpnManager.currentStats()
                 self.bytesReceived = stats.rx
                 self.bytesSent = stats.tx

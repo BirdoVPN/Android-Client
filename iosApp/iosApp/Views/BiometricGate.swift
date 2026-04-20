@@ -50,7 +50,11 @@ struct BiometricGate<Content: View>: View {
 
     private func authenticate() {
         let ctx = LAContext()
-        ctx.localizedFallbackTitle = "Use Passcode"
+        ctx.localizedFallbackTitle = NSLocalizedString(
+            "biometric_fallback_use_passcode",
+            value: "Use Passcode",
+            comment: "Fallback button title in biometric authentication prompt"
+        )
         var error: NSError?
         // Allow device passcode as fallback so a user without enrolled
         // biometrics (or after too many failures) can still get into the app.
@@ -62,7 +66,11 @@ struct BiometricGate<Content: View>: View {
         }
         ctx.evaluatePolicy(
             .deviceOwnerAuthentication,
-            localizedReason: "Unlock Birdo VPN"
+            localizedReason: NSLocalizedString(
+                "biometric_unlock_reason",
+                value: "Unlock Birdo VPN",
+                comment: "Reason shown in the system biometric/passcode prompt when unlocking the app"
+            )
         ) { success, evalError in
             DispatchQueue.main.async {
                 if success {
@@ -88,7 +96,7 @@ private struct LockOverlay: View {
                 Image(systemName: "lock.shield.fill")
                     .font(.system(size: 64, weight: .light))
                     .foregroundStyle(.white)
-                Text("Birdo VPN")
+                Text(NSLocalizedString("lock_overlay_title", value: "Birdo VPN", comment: "App name shown on the biometric lock overlay"))
                     .font(.title2.bold())
                     .foregroundStyle(.white)
                 if let failure {
@@ -99,7 +107,7 @@ private struct LockOverlay: View {
                         .padding(.horizontal, 40)
                 }
                 Button(action: onRetry) {
-                    Label("Unlock", systemImage: "faceid")
+                    Label(NSLocalizedString("unlock_button_title", value: "Unlock", comment: "Title for biometric unlock button"), systemImage: "faceid")
                         .font(.headline)
                         .padding(.horizontal, 24)
                         .padding(.vertical, 12)

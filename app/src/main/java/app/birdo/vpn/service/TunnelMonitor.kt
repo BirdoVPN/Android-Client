@@ -45,6 +45,8 @@ class TunnelMonitor(
     }
 
     private var thread: Thread? = null
+    private var lastConfigSnapshot: String? = null
+    private var lastNewestHandshakeSec: Long? = null
 
     /** Start the monitor on a background daemon thread. */
     fun start() {
@@ -93,14 +95,20 @@ class TunnelMonitor(
      */
     private fun lastHandshakeAgeSeconds(): Long? {
         val cfg = WgNative.getConfig(handle) ?: return null
-        var newest = 0L
-        cfg.lineSequence().forEach { line ->
-            if (line.startsWith("last_handshake_time_sec=")) {
-                val v = line.substringAfter('=').toLongOrNull() ?: return@forEach
-                if (v > newest) newest = v
+        val newest = if (cfg == lastConfigSnapshot) {
+            lastNewestHandshakeSec ?: return null
+        } else {
+            var parsedNewest = 0L
+            cfg.lineSequence().forEach { line ->
+                if (line.startsWith("last_handshake_time_sec=")) {
+                    val v = line.substringAfter('=').toLongOrNull() ?: return@forEach
+                    if (v > parsedNewest) parsedNewest = v
+                }
             }
+            lastConfigSnapshot = cfg
+            lastNewestHandshakeSec = parsedNewest.takeIf { it > 0L }
+            lastNewestHandshakeSec ?: return null
         }
-        if (newest <= 0L) return null
         val nowSec = System.currentTimeMillis() / 1000L
         return (nowSec - newest).coerceAtLeast(0L)
     }
