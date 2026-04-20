@@ -24,10 +24,38 @@ local.properties
 # Kotlin
 /.kotlin/
 
-# Keystore
+# Keystore / signing artifacts (Android)
 *.jks
 *.keystore
 !debug.keystore
+keystore.properties
+
+# Apple signing artifacts (iOS) — NEVER commit these. CI imports them
+# from GitHub Secrets at build time.
+*.p12
+*.p8
+*.mobileprovision
+*.provisionprofile
+*.cer
+*.certSigningRequest
+ExportOptions.plist
+fastlane/report.xml
+fastlane/Preview.html
+
+# Service config files that contain API keys / project ids
+google-services.json
+GoogleService-Info.plist
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+secrets/
+*.secret
+*_secret*
+*_private*
+*.pem
+*.key
 
 # Logs
 *.log
