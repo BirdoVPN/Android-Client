@@ -3,6 +3,10 @@ package app.birdo.vpn.service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Handler
 import android.os.Looper
@@ -128,6 +132,17 @@ class BirdoVpnService : VpnService() {
     private var tunnelHandle: Int = -1
     /** Monitors the tunnel and re-protects sockets. */
     private var tunnelMonitor: TunnelMonitor? = null
+
+    /**
+     * Default-network callback — fires when the OS swaps the underlying
+     * transport (Wi-Fi ↔ cellular ↔ ethernet). On every change we:
+     *   1. Tell the framework which network actually carries our tunnel via
+     *      [setUnderlyingNetworks] so battery / data attribution is correct.
+     *   2. Immediately re-[protect] the wg-go UDP socket so it binds to the
+     *      new transport instead of waiting for the 5s [TunnelMonitor] tick —
+     *      makes Wi-Fi→cellular handover effectively seamless.
+     */
+    private var defaultNetworkCallback: ConnectivityManager.NetworkCallback? = null
 
     /** Single-thread executor for tunnel operations — avoids ANR on main thread. */
     private val tunnelExecutor = Executors.newSingleThreadExecutor { r ->
@@ -536,6 +551,12 @@ class BirdoVpnService : VpnService() {
 
             protectTunnelSockets(handle)
             startTunnelMonitor(handle)
+            registerDefaultNetworkCallback(handle)
+
+            // SEC: wg-go has consumed the private key from configString; wipe it
+            // from the in-memory ConnectResponse so a heap dump or later code
+            // path can't recover it. The kernel/wg-go now owns the key.
+            activeConfig = activeConfig?.copy(privateKey = "", presharedKey = null)
 
             updateState(VpnState.Connected)
             _connectedServerFlow.value = config.serverNode?.name ?: "Unknown"
@@ -772,6 +793,7 @@ class BirdoVpnService : VpnService() {
     }
 
     private fun cleanupTunnel() {
+        unregisterDefaultNetworkCallback()
         tunnelMonitor?.stop()
         tunnelMonitor = null
         if (tunnelHandle >= 0) {
@@ -781,6 +803,78 @@ class BirdoVpnService : VpnService() {
         }
         try { vpnInterface?.close() } catch (e: Exception) { Log.w(TAG, "Error closing VPN", e) }
         vpnInterface = null
+    }
+
+    // ── Roaming (Wi-Fi ↔ Cellular handover) ────────────────────────
+
+    /**
+     * Watch the system's *default* network (the one carrying non-VPN traffic)
+     * and, on every change, re-bind / re-protect the wg-go UDP socket so the
+     * tunnel keeps flowing without a user-visible reconnect.
+     */
+    private fun registerDefaultNetworkCallback(handle: Int) {
+        unregisterDefaultNetworkCallback()
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                if (tunnelHandle != handle) return
+                Log.i(TAG, "Underlying network changed -> $network, reprotecting socket")
+                try {
+                    @Suppress("DEPRECATION")
+                    setUnderlyingNetworks(arrayOf(network))
+                } catch (e: Exception) {
+                    Log.w(TAG, "setUnderlyingNetworks failed", e)
+                }
+                reprotectTunnelSockets(handle)
+            }
+
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                if (tunnelHandle != handle) return
+                // Transport swap (e.g. Wi-Fi caps -> cellular caps on same Network id)
+                reprotectTunnelSockets(handle)
+            }
+
+            override fun onLost(network: Network) {
+                if (tunnelHandle != handle) return
+                // Don't trigger an error — the OS will surface a new default network
+                // via onAvailable(). Just clear the underlying-network attribution
+                // so the framework knows the previous transport is gone.
+                try {
+                    @Suppress("DEPRECATION")
+                    setUnderlyingNetworks(null)
+                } catch (_: Exception) { /* best effort */ }
+            }
+        }
+        try {
+            cm.registerDefaultNetworkCallback(cb)
+            defaultNetworkCallback = cb
+        } catch (e: Exception) {
+            Log.w(TAG, "registerDefaultNetworkCallback failed", e)
+        }
+    }
+
+    private fun unregisterDefaultNetworkCallback() {
+        val cb = defaultNetworkCallback ?: return
+        defaultNetworkCallback = null
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            cm?.unregisterNetworkCallback(cb)
+        } catch (_: Exception) { /* already unregistered */ }
+        try {
+            @Suppress("DEPRECATION")
+            setUnderlyingNetworks(null)
+        } catch (_: Exception) { /* not active */ }
+    }
+
+    private fun reprotectTunnelSockets(handle: Int) {
+        try {
+            val v4 = WgNative.getSocketV4(handle)
+            if (v4 >= 0) protect(v4)
+            val v6 = WgNative.getSocketV6(handle)
+            if (v6 >= 0) protect(v6)
+        } catch (e: Exception) {
+            Log.w(TAG, "reprotectTunnelSockets failed", e)
+        }
     }
 
     /** Stop Xray Reality and Rosenpass, zeroing all PQ key material. */

@@ -73,6 +73,15 @@ object NetworkModule {
                 // HEADERS only — NEVER use BODY: it would log WireGuard private keys,
                 // passwords, and auth tokens to Logcat.
                 level = HttpLoggingInterceptor.Level.HEADERS
+                // SEC: redact every credential-bearing header so even debug logs
+                // never expose Bearer tokens, session cookies, CSRF tokens, or
+                // backend service-auth secrets in logcat / bug reports.
+                redactHeader("Authorization")
+                redactHeader("Cookie")
+                redactHeader("Set-Cookie")
+                redactHeader("X-CSRF-Token")
+                redactHeader("X-Service-Auth")
+                redactHeader("X-Refresh-Token")
             }
             builder.addInterceptor(logging)
         }
