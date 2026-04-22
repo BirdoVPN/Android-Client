@@ -213,6 +213,40 @@ class BirdoRepository @Inject constructor(
     suspend fun getSubscription(): ApiResult<SubscriptionStatus> =
         withAutoRefresh("Failed to get subscription") { api.getSubscription() }
 
+    /**
+     * Redeem a voucher code. Returns the parsed RedeemVoucherResponse on
+     * 2xx; on 4xx the body is parsed as RedeemVoucherResponse so the
+     * `error` slug can drive the UI error string. Any non-JSON error
+     * (network, 5xx) is returned as ApiResult.Error with a generic message.
+     */
+    suspend fun redeemVoucher(code: String): ApiResult<RedeemVoucherResponse> = try {
+        val response = api.redeemVoucher(RedeemVoucherRequest(code = code))
+        if (response.isSuccessful) {
+            val body = response.body()
+            if (body != null) ApiResult.Success(body)
+            else ApiResult.Error("Empty response", response.code())
+        } else {
+            // Try to parse the JSON error body so callers can show a
+            // specific user-facing message based on `error`.
+            val raw = response.errorBody()?.string()
+            val parsed = raw?.let {
+                runCatching {
+                    kotlinx.serialization.json.Json {
+                        ignoreUnknownKeys = true
+                        coerceInputValues = true
+                    }.decodeFromString(RedeemVoucherResponse.serializer(), it)
+                }.getOrNull()
+            }
+            if (parsed?.error != null) {
+                ApiResult.Success(parsed.copy(ok = false))
+            } else {
+                ApiResult.Error("Voucher redemption failed", response.code())
+            }
+        }
+    } catch (e: Exception) {
+        ApiResult.Error(e.message ?: "Network error")
+    }
+
     // ── VPN ──────────────────────────────────────────────────────
 
     /**

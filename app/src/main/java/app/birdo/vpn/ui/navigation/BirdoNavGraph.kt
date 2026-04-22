@@ -493,6 +493,9 @@ fun BirdoNavGraph(
                         onManageOnWeb = {
                             settingsViewModel.openUrl("https://birdo.app/dashboard/billing")
                         },
+                        onRedeemVoucher = { code, onResult ->
+                            vpnViewModel.redeemVoucher(code, onResult)
+                        },
                     )
                 }
             }

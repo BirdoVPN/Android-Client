@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import app.birdo.vpn.data.auth.TokenManager
 import app.birdo.vpn.data.model.ConnectResponse
 import app.birdo.vpn.data.model.PortForward
+import app.birdo.vpn.data.model.RedeemVoucherResponse
 import app.birdo.vpn.data.model.SubscriptionStatus
 import app.birdo.vpn.data.model.VpnServer
 import app.birdo.vpn.data.preferences.AppPreferences
@@ -179,6 +180,27 @@ class VpnViewModel @Inject constructor(
                     _uiState.value = _uiState.value.copy(subscription = result.data)
                 }
                 is ApiResult.Error -> { /* silent — non-critical */ }
+            }
+        }
+    }
+
+    /**
+     * Redeem a voucher code. Refreshes the subscription on success so
+     * the UI reflects the new period end. The provided callback receives
+     * the parsed RedeemVoucherResponse (success body or parsed error
+     * body) — see RedeemVoucherResponse.error for the slug.
+     */
+    fun redeemVoucher(code: String, onResult: (RedeemVoucherResponse?) -> Unit) {
+        viewModelScope.launch {
+            when (val result = repository.redeemVoucher(code)) {
+                is ApiResult.Success -> {
+                    if (result.data.ok) {
+                        // Refresh subscription so SubscriptionScreen shows new period
+                        fetchSubscription()
+                    }
+                    onResult(result.data)
+                }
+                is ApiResult.Error -> onResult(null)
             }
         }
     }

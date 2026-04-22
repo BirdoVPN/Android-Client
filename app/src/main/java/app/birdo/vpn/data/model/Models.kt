@@ -28,6 +28,10 @@ typealias SubscriptionStatus = app.birdo.vpn.shared.model.SubscriptionStatus
 typealias AnonymousLoginRequest = app.birdo.vpn.shared.model.AnonymousLoginRequest
 typealias AnonymousLoginResponse = app.birdo.vpn.shared.model.AnonymousLoginResponse
 
+// ─── Vouchers ────────────────────────────────────────────────────────────────
+typealias RedeemVoucherRequest = app.birdo.vpn.shared.model.RedeemVoucherRequest
+typealias RedeemVoucherResponse = app.birdo.vpn.shared.model.RedeemVoucherResponse
+
 // ─── GDPR / Account Deletion ─────────────────────────────────────────────────
 typealias DeleteAccountRequest = app.birdo.vpn.shared.model.DeleteAccountRequest
 typealias DeleteAccountResponse = app.birdo.vpn.shared.model.DeleteAccountResponse

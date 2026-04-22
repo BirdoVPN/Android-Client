@@ -114,6 +114,28 @@ data class AnonymousLoginResponse(
     val tokens: TokenPair? = null,
 )
 
+// ─── Vouchers ────────────────────────────────────────────────────────────────
+//
+// Vouchers are time-extension codes (30 or 90 days) that extend a user's
+// subscription `currentPeriodEnd` and optionally upgrade their plan.
+// Backend: POST /vouchers/redeem (NestJS — see backend/src/vouchers).
+
+@Serializable
+data class RedeemVoucherRequest(
+    val code: String,
+)
+
+@Serializable
+data class RedeemVoucherResponse(
+    val ok: Boolean = false,
+    val plan: String = "RECON",
+    val durationDays: Int = 0,
+    val newPeriodEnd: String? = null,
+    val extended: Boolean = false,
+    /** Present when ok=false; one of the slugs documented in the controller. */
+    val error: String? = null,
+)
+
 // ─── GDPR / Account Deletion ─────────────────────────────────────────────────
 
 @Serializable

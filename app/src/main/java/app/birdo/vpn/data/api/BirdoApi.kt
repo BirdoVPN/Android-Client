@@ -62,6 +62,18 @@ interface BirdoApi {
     @GET("vpn/stats")
     suspend fun getSubscription(): Response<SubscriptionStatus>
 
+    /**
+     * Redeem a voucher code (BIRD-XXXX-XXXX-XXXX). Vouchers extend the
+     * caller's subscription `currentPeriodEnd` by 30 or 90 days. Backend
+     * route: POST /vouchers/redeem (NestJS — see backend/src/vouchers).
+     * Errors arrive as non-2xx with a JSON body matching RedeemVoucherResponse
+     * (the `error` slug indicates which user-facing message to show).
+     */
+    @POST("vouchers/redeem")
+    suspend fun redeemVoucher(
+        @Body request: RedeemVoucherRequest,
+    ): Response<RedeemVoucherResponse>
+
     // ── VPN ──────────────────────────────────────────────────────
 
     @GET("vpn/servers")
