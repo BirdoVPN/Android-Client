@@ -116,8 +116,8 @@ val BirdoDarkPalette = BirdoSemanticPalette(
     hairlineSoft = Color(0x14FFFFFF),
     accent = BirdoPurple,
     accentBg = BirdoPurpleBg,
-    mapWater = Color(0xFF080812),
-    mapLand = Color(0x1AC4B5FD),       // dim violet land
+    mapWater = Color(0x4D0B0B1A),       // translucent so the pixel canvas reads through
+    mapLand = Color(0x33C4B5FD),        // dim violet land
     mapDot = Color(0xFFA855F7),
     mapDotMuted = Color(0x66A855F7),
 )

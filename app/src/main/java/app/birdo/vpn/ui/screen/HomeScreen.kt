@@ -66,7 +66,7 @@ fun HomeScreen(
     var showServerSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    Column(modifier = Modifier.fillMaxSize().background(palette.background)) {
+    Column(modifier = Modifier.fillMaxSize()) {
         HomeTopBar(userEmail = userEmail, onLogout = onLogout)
 
         Box(modifier = Modifier.fillMaxSize()) {
@@ -219,20 +219,7 @@ private fun HomeTopBar(userEmail: String?, onLogout: () -> Unit) {
 private fun BrandLockup() {
     val palette = BirdoColors.current
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(RoundedCornerShape(9.dp))
-                .background(BirdoBrand.PrimaryGradient),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Icons.Default.Shield,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(15.dp),
-            )
-        }
+        AppIconMark(size = 32.dp, cornerRadius = 10.dp)
         Spacer(Modifier.width(10.dp))
         Text(
             text = stringResource(R.string.app_name),
@@ -375,7 +362,7 @@ private fun HeroConnectButton(
                 .background(
                     when {
                         isConnected -> Brush.linearGradient(listOf(BirdoGreen, BirdoBrand.Teal))
-                        isConnecting || isDisconnecting -> Brush.linearGradient(listOf(BirdoYellow, BirdoBrand.Pink))
+                        isConnecting || isDisconnecting -> Brush.linearGradient(listOf(BirdoBrand.PurpleSoft, BirdoBrand.PurpleDeep))
                         else -> BirdoBrand.PrimaryGradient
                     }
                 ),
@@ -395,7 +382,7 @@ private fun HeroConnectButton(
                 .background(
                     when {
                         isConnected -> Brush.radialGradient(listOf(BirdoGreen, Color(0xFF166534)))
-                        isConnecting || isDisconnecting -> Brush.radialGradient(listOf(BirdoYellow, Color(0xFF854D0E)))
+                        isConnecting || isDisconnecting -> Brush.radialGradient(listOf(BirdoBrand.PurpleDeep, Color(0xFF2E1065)))
                         else -> Brush.radialGradient(listOf(BirdoBrand.Surface3, BirdoBrand.Surface1))
                     }
                 )

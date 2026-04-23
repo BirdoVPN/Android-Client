@@ -69,7 +69,6 @@ fun ProfileScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(palette.background)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp, vertical = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -131,7 +130,6 @@ private fun ProfileIdentityCard(
     val palette = BirdoColors.current
     val email = user?.email ?: "Anonymous"
     val name = user?.name?.takeIf { it.isNotBlank() } ?: email.substringBefore('@')
-    val initial = name.firstOrNull()?.uppercaseChar()?.toString() ?: "·"
     val plan = subscription?.plan ?: "RECON"
 
     BirdoCard(
@@ -143,20 +141,7 @@ private fun ProfileIdentityCard(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(CircleShape)
-                        .background(BirdoBrand.PrimaryGradient),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = initial,
-                        color = Color.White,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+                app.birdo.vpn.ui.components.AppIconMark(size = 56.dp, cornerRadius = 18.dp)
                 Spacer(Modifier.width(14.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -277,8 +262,12 @@ private fun PlanCard(
 private fun PlanChip(plan: String) {
     val palette = BirdoColors.current
     val (bg, fg) = when (plan.uppercase()) {
-        "SOVEREIGN" -> BirdoBrand.PrimaryGradient to Color.White
-        "OPERATIVE" -> Brush.linearGradient(listOf(BirdoBrand.Indigo, BirdoBrand.Cyan)) to Color.White
+        "SOVEREIGN" -> Brush.linearGradient(
+            listOf(Color(0xFF7C3AED), Color(0xFF4C1D95))
+        ) to Color.White
+        "OPERATIVE" -> Brush.linearGradient(
+            listOf(Color(0xFF6366F1), Color(0xFF4338CA))
+        ) to Color.White
         else -> Brush.linearGradient(listOf(palette.hairline, palette.hairline)) to palette.onSurface
     }
     Box(
