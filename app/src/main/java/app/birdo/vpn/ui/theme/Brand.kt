@@ -28,10 +28,14 @@ object BirdoBrand {
 
     // ── Brushes ───────────────────────────────────────────────────────
 
-    /** Hero brand gradient — used for primary CTA & headline accents. */
+    /**
+     * Primary brand fill — a restrained monochrome deep-purple gradient that
+     * matches the app icon. The previous purple→pink version was deliberately
+     * removed because the app is otherwise all dark-purple + neutral greys.
+     */
     val PrimaryGradient: Brush
         get() = Brush.linearGradient(
-            colors = listOf(Purple, Pink),
+            colors = listOf(Color(0xFF7C3AED), Color(0xFF4C1D95)),
         )
 
     /** Cool secondary gradient — info / tech accents. */

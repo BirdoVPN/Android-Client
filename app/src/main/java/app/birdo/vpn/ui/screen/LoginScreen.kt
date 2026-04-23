@@ -104,26 +104,16 @@ fun LoginScreen(
                 .padding(horizontal = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // ── Brand mark (gradient shield) ──
+            // ── Brand mark (app launcher icon) ──
             AnimatedVisibility(
                 visible = visible,
                 enter = fadeIn(animationSpec = tween(500, delayMillis = 60)) +
                     slideInVertically(initialOffsetY = { 16 }),
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(BirdoBrand.PrimaryGradient),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.Default.Shield,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(32.dp),
-                    )
-                }
+                app.birdo.vpn.ui.components.AppIconMark(
+                    size = 72.dp,
+                    cornerRadius = 20.dp,
+                )
             }
             Spacer(Modifier.height(20.dp))
 
