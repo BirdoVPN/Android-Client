@@ -148,9 +148,7 @@ fun BirdoNavGraph(
                     NavigationBar(
                         containerColor = palette.surface,
                         tonalElevation = 0.dp,
-                        modifier = Modifier
-                            .background(palette.surface)
-                            .height(72.dp),
+                        modifier = Modifier.background(palette.surface),
                     ) {
                         bottomNavItems.forEach { item ->
                             val isSelected = navBackStackEntry?.destination?.hierarchy?.any {
@@ -197,10 +195,8 @@ fun BirdoNavGraph(
         },
     ) { scaffoldPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
-            // ── Pixel canvas background (dark theme only) ──
-            if (!palette.isLight) {
-                PixelCanvas()
-            }
+            // Pixel canvas background — enabled on both themes (light is now "dim")
+            PixelCanvas()
 
             Column(modifier = Modifier.fillMaxSize()) {
                 // ── Offline banner ──────────────────────────────────
