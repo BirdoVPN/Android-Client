@@ -60,19 +60,20 @@ val BirdoOnPrimary = Color.Black
 // Muted
 val BirdoMuted = Color(0xFFA6A6A6)       // --muted-foreground
 
-// ─── Light Theme Tokens ──────────────────────────────────────────────────────
-// A polished neutral light palette. Uses warm-grey tones with the same purple
-// brand accent so the brand identity carries across themes.
-val BirdoLightBackground       = Color(0xFFF7F7FB) // App background
-val BirdoLightSurface          = Color(0xFFFFFFFF) // Cards
-val BirdoLightSurfaceVariant   = Color(0xFFF1F2F7) // Raised cards / inputs
-val BirdoLightSurfaceElevated  = Color(0xFFFAFAFD) // Modals / popovers
-val BirdoLightOnBackground     = Color(0xFF0F1020) // Body text
-val BirdoLightOnSurfaceVariant = Color(0xFF55576B) // Secondary text
-val BirdoLightOutline          = Color(0xFFDADCE6) // Strong border
-val BirdoLightOutlineSoft      = Color(0xFFEBEDF3) // Subtle divider
-val BirdoLightPrimary          = Color(0xFF6D28D9) // violet-700 (matches dark accent)
-val BirdoLightAccentBg         = Color(0x14A855F7) // 8% purple
+// ─── "Dim Light" Theme Tokens ─────────────────────────────────────────────
+// User feedback: pure white light mode is too bright. This is a near-dark
+// neutral that reads as "light" against the OLED-black dark theme but is
+// still soft on the eyes — think GitHub's dim/grey theme.
+val BirdoLightBackground       = Color(0xFF1B1C24) // App background — slate near-black
+val BirdoLightSurface          = Color(0xFF22232C) // Cards
+val BirdoLightSurfaceVariant   = Color(0xFF2A2B36) // Raised cards / inputs
+val BirdoLightSurfaceElevated  = Color(0xFF2F3040) // Modals / popovers
+val BirdoLightOnBackground     = Color(0xFFE8E9F0) // Body text
+val BirdoLightOnSurfaceVariant = Color(0xFFB7B9C9) // Secondary text
+val BirdoLightOutline          = Color(0x33FFFFFF) // Strong border
+val BirdoLightOutlineSoft      = Color(0x1AFFFFFF) // Subtle divider
+val BirdoLightPrimary          = Color(0xFFB794F6) // softer violet for dim background
+val BirdoLightAccentBg         = Color(0x29A855F7) // 16% purple — pops on dim grey
 
 // ─── Semantic Color Palette (theme-aware) ────────────────────────────────────
 /**
@@ -131,15 +132,15 @@ val BirdoLightPalette = BirdoSemanticPalette(
     onBackground = BirdoLightOnBackground,
     onSurface = BirdoLightOnBackground,
     onSurfaceMuted = BirdoLightOnSurfaceVariant,
-    onSurfaceFaint = Color(0xFF8A8C9D),
-    hairline = Color(0x14000000),
-    hairlineSoft = Color(0x0A000000),
+    onSurfaceFaint = Color(0xFF7A7C8E),
+    hairline = Color(0x33FFFFFF),
+    hairlineSoft = Color(0x1AFFFFFF),
     accent = BirdoLightPrimary,
     accentBg = BirdoLightAccentBg,
-    mapWater = Color(0xFFE7E9F2),
-    mapLand = Color(0x336D28D9),
+    mapWater = Color(0x661B1C24),       // translucent matching dim background
+    mapLand = Color(0x55B794F6),        // soft violet on dim background
     mapDot = BirdoLightPrimary,
-    mapDotMuted = Color(0x666D28D9),
+    mapDotMuted = Color(0x80B794F6),
 )
 
 val LocalBirdoColors = androidx.compose.runtime.staticCompositionLocalOf { BirdoDarkPalette }

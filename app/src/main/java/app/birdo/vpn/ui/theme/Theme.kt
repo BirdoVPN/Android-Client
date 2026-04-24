@@ -36,17 +36,17 @@ private val BirdoDarkColorScheme = darkColorScheme(
     onErrorContainer = BirdoRed,
 )
 
-// ── Light scheme: refined warm-neutral palette (Fortune-500 polish) ───────
-//   Background: near-white with a subtle cool tint
-//   Cards:      pure white on top of bg for subtle elevation
-//   Accent:     the same purple as dark theme so brand identity carries over
+// ── "Dim Light" scheme — warm dark-grey, NOT pure white ──────────────────
+//   Background: dim slate (#1B1C24) — not blinding
+//   Cards:      slightly raised slate for layering
+//   Accent:     softer violet that pops on the dim background
 private val BirdoLightColorScheme = lightColorScheme(
     primary = BirdoLightPrimary,
-    onPrimary = Color.White,
+    onPrimary = Color(0xFF1B0F36),
     primaryContainer = BirdoLightAccentBg,
     onPrimaryContainer = BirdoLightPrimary,
-    secondary = BirdoPurpleDark,
-    onSecondary = Color.White,
+    secondary = BirdoPurpleLight,
+    onSecondary = Color(0xFF1B0F36),
     secondaryContainer = BirdoLightAccentBg,
     onSecondaryContainer = BirdoLightPrimary,
     tertiary = BirdoBlue,
@@ -59,10 +59,10 @@ private val BirdoLightColorScheme = lightColorScheme(
     onSurfaceVariant = BirdoLightOnSurfaceVariant,
     outline = BirdoLightOutline,
     outlineVariant = BirdoLightOutlineSoft,
-    error = Color(0xFFB91C1C),
-    onError = Color.White,
-    errorContainer = Color(0xFFFEE2E2),
-    onErrorContainer = Color(0xFF7F1D1D),
+    error = Color(0xFFF87171),
+    onError = Color(0xFF2C0A0A),
+    errorContainer = Color(0x33F87171),
+    onErrorContainer = Color(0xFFFCA5A5),
 )
 
 /** Resolves a "system" / "dark" / "light" preference into a Boolean. */
@@ -87,8 +87,9 @@ fun BirdoTheme(
         SideEffect {
             val window = (view.context as Activity).window
             val insetsController = WindowInsetsControllerCompat(window, view)
-            insetsController.isAppearanceLightStatusBars = !darkTheme
-            insetsController.isAppearanceLightNavigationBars = !darkTheme
+            // Dim-light theme is still dark enough to use light status-bar icons.
+            insetsController.isAppearanceLightStatusBars = false
+            insetsController.isAppearanceLightNavigationBars = false
             WindowCompat.setDecorFitsSystemWindows(window, false)
         }
     }

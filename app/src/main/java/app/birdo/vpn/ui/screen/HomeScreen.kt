@@ -69,15 +69,20 @@ fun HomeScreen(
     Column(modifier = Modifier.fillMaxSize()) {
         HomeTopBar(userEmail = userEmail, onLogout = onLogout)
 
-        Box(modifier = Modifier.fillMaxSize()) {
-            // Hero globe occupies the top half as the visual centrepiece.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+        ) {
+            // Hero globe — sized as a fraction of the available height so the
+            // layout adapts to any screen (small phones, tablets, foldables).
             WorldGlobe(
                 servers = state.servers,
                 selectedServerId = state.selectedServer?.id,
                 isConnected = isConnected,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(420.dp)
+                    .fillMaxHeight(0.55f)
                     .align(Alignment.TopCenter),
             )
 
@@ -87,7 +92,7 @@ fun HomeScreen(
                     .padding(horizontal = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(16.dp))
 
                 StatusPill(
                     isConnected = isConnected,
@@ -96,12 +101,12 @@ fun HomeScreen(
                     isError = isError,
                 )
 
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 LocationLabel(state = state)
 
-                // Reserve room for the globe before the connect button so the
-                // button sits below the equator and the dots remain visible.
-                Spacer(Modifier.height(220.dp))
+                // Flexible spacer so the connect button always sits below the
+                // globe regardless of screen height.
+                Spacer(Modifier.weight(1f))
 
                 HeroConnectButton(
                     isConnected = isConnected,
@@ -116,7 +121,7 @@ fun HomeScreen(
                     },
                 )
 
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(16.dp))
 
                 AnimatedVisibility(
                     visible = isConnected,
@@ -142,7 +147,7 @@ fun HomeScreen(
                 if (isError) ErrorBanner((state.vpnState as VpnState.Error).message)
                 if (state.error != null) ErrorBanner(state.error)
 
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.weight(0.4f))
 
                 ServerSelector(
                     state = state,
@@ -156,7 +161,7 @@ fun HomeScreen(
                     },
                 )
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(8.dp))
             }
         }
     }
