@@ -15,8 +15,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -25,11 +23,12 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
 import app.birdo.vpn.data.model.VpnServer
 import app.birdo.vpn.ui.theme.BirdoColors
 import app.birdo.vpn.utils.CountryCoords
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
@@ -89,10 +88,6 @@ fun WorldGlobe(
             ?.let { it.second to it.third }
     }
 
-    // Map crop: drop the polar caps so the world fills the frame nicely.
-    val latMaxCrop = 72f
-    val latMinCrop = -58f
-
     // When connected, fit the bbox of (user, selected) with padding.
     val zoomActive = isConnected && selectedCoord != null
     val targetLatC: Float
@@ -145,174 +140,168 @@ fun WorldGlobe(
     )
 
     val isLight = palette.isLight
-    val landFill = if (isLight) Color(0xFF3B0764) else Color(0xFFB8A2EE)
-    val landFillAlpha = 0.92f
-    val oceanDeep = if (isLight) Color(0xFFCBD5E1) else Color(0xFF0B1226)
-    val oceanShallow = if (isLight) Color(0xFFE2E8F0) else Color(0xFF1E1B4B)
+    // Mullvad-style palette: muted navy ocean, slate-blue continents, lighter coastline.
+    val ocean = if (isLight) Color(0xFFE6EAF2) else Color(0xFF192E45)
+    val landFill = if (isLight) Color(0xFFB7C2D6) else Color(0xFF294B6E)
+    val coastStroke = if (isLight) Color(0xFF8896B0) else Color(0xFF4A6E94)
     val accent = palette.accent
-    val gridColor = palette.hairline.copy(alpha = if (isLight) 0.18f else 0.10f)
+    val connectedColor = if (isLight) Color(0xFF1F8F4E) else Color(0xFF44D17E)
 
     Canvas(modifier = modifier.fillMaxSize()) {
-        val w = size.width
-        val h = size.height
-
-        // Ocean / map background.
-        drawRect(
-            brush = Brush.verticalGradient(listOf(oceanShallow, oceanDeep)),
-            size = size,
-        )
-
-        // Compute the projection: figure out what (lat, lon) range maps to
-        // the canvas given the current pan + zoom.
-        val mapAspect = if (h > 0f) w / h else 1f
-        val lonSpan = animSpan.coerceAtLeast(40f)
-        // Latitude span follows canvas aspect (equirectangular: 1° lat = 1° lon at the equator).
-        val latSpan = lonSpan / mapAspect
-        val lonMin = animLonC - lonSpan / 2f
-        val latTop = animLatC + latSpan / 2f
-
-        fun project(lat: Float, lon: Float): Offset {
-            var l = lon
-            while (l - animLonC > 180f) l -= 360f
-            while (l - animLonC < -180f) l += 360f
-            val nx = (l - lonMin) / lonSpan
-            val ny = (latTop - lat) / latSpan
-            return Offset(nx * w, ny * h)
-        }
-
-        clipRect(0f, 0f, w, h) {
-            // Subtle grid lines for spatial structure.
-            run {
-                var lat = -60
-                while (lat <= 60) {
-                    val y = ((latTop - lat) / latSpan) * h
-                    if (y in 0f..h) {
-                        drawLine(
-                            color = gridColor,
-                            start = Offset(0f, y),
-                            end = Offset(w, y),
-                            strokeWidth = 0.7f,
-                        )
-                    }
-                    lat += 30
-                }
-            }
-            run {
-                var lon = -150
-                while (lon <= 150) {
-                    var l = lon.toFloat()
-                    while (l - animLonC > 180f) l -= 360f
-                    while (l - animLonC < -180f) l += 360f
-                    val x = ((l - lonMin) / lonSpan) * w
-                    if (x in 0f..w) {
-                        drawLine(
-                            color = gridColor,
-                            start = Offset(x, 0f),
-                            end = Offset(x, h),
-                            strokeWidth = 0.7f,
-                        )
-                    }
-                    lon += 30
-                }
-            }
-
-            // Land cells.
-            val landPath = buildLandPath(
-                w = w, h = h,
-                lonMin = lonMin, lonSpan = lonSpan,
-                latTop = latTop, latSpan = latSpan,
-                latMaxCrop = latMaxCrop, latMinCrop = latMinCrop,
-            )
-            drawPath(landPath, color = landFill.copy(alpha = landFillAlpha))
-
-            // Server dots.
-            serverPoints.forEach { (id, lat, lon) ->
-                val pos = project(lat.toFloat(), lon.toFloat())
-                if (pos.x !in -8f..(w + 8f) || pos.y !in -8f..(h + 8f)) return@forEach
-                val isSelected = id == selectedServerId
-                val baseColor = if (isSelected) accent else palette.mapDot
-                if (isSelected) {
-                    val ringRadius = 6f + pulse * 22f
-                    drawCircle(
-                        color = baseColor.copy(alpha = (1f - pulse) * 0.50f),
-                        radius = ringRadius,
-                        center = pos,
-                    )
-                }
-                drawCircle(
-                    color = baseColor.copy(alpha = if (isSelected) 1f else 0.85f),
-                    radius = if (isSelected) 5.5f else 3.0f,
-                    center = pos,
-                )
-                if (isSelected) {
-                    drawCircle(color = Color.White, radius = 2.4f, center = pos)
-                }
-            }
-
-            // Connection arc + endpoints.
-            if (zoomActive && selectedCoord != null) {
-                val from = project(userLat.toFloat(), userLon.toFloat())
-                val to = project(selectedCoord.first.toFloat(), selectedCoord.second.toFloat())
-                drawConnectionArc(from, to, accent, arcProgress, arcShimmer)
-                drawCircle(color = accent.copy(alpha = 0.30f), radius = 11f, center = from)
-                drawCircle(color = Color.White, radius = 4.0f, center = from)
-                drawCircle(color = accent, radius = 2.0f, center = from)
-            }
-        }
-
-        // Outer hairline border for definition.
-        drawRect(
-            color = accent.copy(alpha = if (isLight) 0.30f else 0.35f),
-            size = Size(w, h),
-            style = Stroke(width = 1.0f),
+        renderMullvadMap(
+            ocean = ocean,
+            landFill = landFill,
+            coastStroke = coastStroke,
+            accent = accent,
+            connectedColor = connectedColor,
+            isLight = isLight,
+            mapDotMuted = palette.mapDotMuted,
+            animLatC = animLatC,
+            animLonC = animLonC,
+            animSpan = animSpan,
+            serverPoints = serverPoints,
+            selectedServerId = selectedServerId,
+            selectedCoord = selectedCoord,
+            isConnected = isConnected,
+            zoomActive = zoomActive,
+            userLat = userLat,
+            userLon = userLon,
+            arcProgress = arcProgress,
+            arcShimmer = arcShimmer,
+            pulse = pulse,
         )
     }
 }
 
-/** Build a Path covering all visible land cells as small rectangles. */
-private fun buildLandPath(
-    w: Float,
-    h: Float,
-    lonMin: Float,
-    lonSpan: Float,
-    latTop: Float,
-    latSpan: Float,
-    latMaxCrop: Float,
-    latMinCrop: Float,
-): Path {
-    val path = Path()
-    val rows = WorldLandmask.rowCount()
-    val cols = WorldLandmask.colCount()
-    val cellLat = 180.0 / rows
-    val cellLon = 360.0 / cols
+/**
+ * All actual map rendering lives here, outside the @Composable so the
+ * Compose compiler plugin doesn't have to walk a deeply-nested IR tree
+ * (which can blow the JVM stack on CI runners).
+ */
+private fun DrawScope.renderMullvadMap(
+    ocean: Color,
+    landFill: Color,
+    coastStroke: Color,
+    accent: Color,
+    connectedColor: Color,
+    isLight: Boolean,
+    mapDotMuted: Color,
+    animLatC: Float,
+    animLonC: Float,
+    animSpan: Float,
+    serverPoints: List<Triple<String, Double, Double>>,
+    selectedServerId: String?,
+    selectedCoord: Pair<Double, Double>?,
+    isConnected: Boolean,
+    zoomActive: Boolean,
+    userLat: Double,
+    userLon: Double,
+    arcProgress: Float,
+    arcShimmer: Float,
+    pulse: Float,
+) {
+    val w = size.width
+    val h = size.height
 
-    val viewLatMax = min(latTop, latMaxCrop)
-    val viewLatMin = max(latTop - latSpan, latMinCrop)
-    val rTop = (((90.0 - viewLatMax) / cellLat).toInt() - 1).coerceAtLeast(0)
-    val rBot = (((90.0 - viewLatMin) / cellLat).toInt() + 1).coerceAtMost(rows - 1)
+    drawRect(color = ocean, size = size)
 
-    val pixPerLon = w / lonSpan
-    val pixPerLat = h / latSpan
-    // Add 0.6px overlap so adjacent cells fuse into solid landmasses with no seams.
-    val cellW = (cellLon * pixPerLon).toFloat() + 0.6f
-    val cellH = (cellLat * pixPerLat).toFloat() + 0.6f
-    val centre = lonMin + lonSpan / 2f
+    val mapAspect = if (h > 0f) w / h else 1f
+    val lonSpan = animSpan.coerceAtLeast(40f)
+    val latSpan = lonSpan / mapAspect
+    val lonMin = animLonC - lonSpan / 2f
+    val latTop = animLatC + latSpan / 2f
 
-    for (r in rTop..rBot) {
-        val cellLatTop = (90.0 - r * cellLat).toFloat()
-        val y = ((latTop - cellLatTop) * pixPerLat)
-        if (y > h + cellH || y + cellH < 0f) continue
-        for (c in 0 until cols) {
-            if (!WorldLandmask.isLandCell(r, c)) continue
-            var lon = (-180.0 + c * cellLon).toFloat()
-            while (lon - centre > 180f) lon -= 360f
-            while (lon - centre < -180f) lon += 360f
-            val x = ((lon - lonMin) * pixPerLon)
-            if (x > w + cellW || x + cellW < 0f) continue
-            path.addRect(Rect(x, y, x + cellW, y + cellH))
+    fun project(lat: Float, lon: Float): Offset {
+        var l = lon
+        while (l - animLonC > 180f) l -= 360f
+        while (l - animLonC < -180f) l += 360f
+        val nx = (l - lonMin) / lonSpan
+        val ny = (latTop - lat) / latSpan
+        return Offset(nx * w, ny * h)
+    }
+
+    clipRect(0f, 0f, w, h) {
+        val pixPerLon = w / lonSpan
+        val pixPerLat = h / latSpan
+        val tileW = 360f * pixPerLon
+        val tileH = 180f * pixPerLat
+        val baseX = (-180f - lonMin) * pixPerLon
+        val baseY = (latTop - 90f) * pixPerLat
+
+        val landPath = WorldLandmask.landPathNormalised()
+        val coastAlpha = if (isLight) 0.55f else 0.45f
+        val avgTile = (tileW + tileH) * 0.5f
+        val coastWidth = if (avgTile > 0f) 0.9f / avgTile else 0f
+
+        for (k in -1..1) {
+            val ox = baseX + k * tileW
+            if (ox + tileW < -2f || ox > w + 2f) continue
+            translate(left = ox, top = baseY) {
+                scale(scaleX = tileW, scaleY = tileH, pivot = Offset.Zero) {
+                    drawPath(landPath, color = landFill)
+                    if (coastWidth > 0f) {
+                        drawPath(
+                            landPath,
+                            color = coastStroke.copy(alpha = coastAlpha),
+                            style = Stroke(width = coastWidth),
+                        )
+                    }
+                }
+            }
+        }
+
+        for (sp in serverPoints) {
+            val id = sp.first
+            val lat = sp.second
+            val lon = sp.third
+            if (id == selectedServerId) continue
+            val pos = project(lat.toFloat(), lon.toFloat())
+            if (pos.x !in -8f..(w + 8f) || pos.y !in -8f..(h + 8f)) continue
+            drawCircle(
+                color = mapDotMuted.copy(alpha = if (isLight) 0.55f else 0.45f),
+                radius = 2.2f,
+                center = pos,
+            )
+        }
+
+        if (zoomActive && selectedCoord != null) {
+            val from = project(userLat.toFloat(), userLon.toFloat())
+            val to = project(selectedCoord.first.toFloat(), selectedCoord.second.toFloat())
+            val arcColor = if (isConnected) connectedColor else accent
+            drawConnectionArc(from, to, arcColor, arcProgress, arcShimmer)
+            val userColor = if (isConnected) connectedColor else accent
+            drawMullvadPin(from, userColor, pulse)
+            drawMullvadPin(to, accent, pulse)
+        } else {
+            val sel = serverPoints.firstOrNull { it.first == selectedServerId }
+            if (sel != null) {
+                val pos = project(sel.second.toFloat(), sel.third.toFloat())
+                if (pos.x in -8f..(w + 8f) && pos.y in -8f..(h + 8f)) {
+                    drawMullvadPin(pos, accent, pulse)
+                }
+            }
+            val userPos = project(userLat.toFloat(), userLon.toFloat())
+            if (userPos.x in -8f..(w + 8f) && userPos.y in -8f..(h + 8f)) {
+                drawMullvadPin(userPos, accent.copy(alpha = 0.9f), pulse, small = true)
+            }
         }
     }
-    return path
+}
+
+/** Mullvad-style pin: outer translucent halo + filled disc + inner white dot. */
+private fun DrawScope.drawMullvadPin(
+    center: Offset,
+    color: Color,
+    pulse: Float,
+    small: Boolean = false,
+) {
+    val haloRadius = (if (small) 14f else 22f) + pulse * 4f
+    val discRadius = if (small) 5.5f else 7.5f
+    val innerRadius = if (small) 2.2f else 3.0f
+    drawCircle(color = color.copy(alpha = 0.18f), radius = haloRadius, center = center)
+    drawCircle(color = color.copy(alpha = 0.32f), radius = haloRadius * 0.66f, center = center)
+    drawCircle(color = color, radius = discRadius, center = center)
+    drawCircle(color = Color.White, radius = innerRadius, center = center)
 }
 
 /**
