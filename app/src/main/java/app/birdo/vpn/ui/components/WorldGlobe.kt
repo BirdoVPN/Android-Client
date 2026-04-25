@@ -148,113 +148,141 @@ fun WorldGlobe(
     val connectedColor = if (isLight) Color(0xFF1F8F4E) else Color(0xFF44D17E)
 
     Canvas(modifier = modifier.fillMaxSize()) {
-        val w = size.width
-        val h = size.height
+        renderMullvadMap(
+            ocean = ocean,
+            landFill = landFill,
+            coastStroke = coastStroke,
+            accent = accent,
+            connectedColor = connectedColor,
+            isLight = isLight,
+            mapDotMuted = palette.mapDotMuted,
+            animLatC = animLatC,
+            animLonC = animLonC,
+            animSpan = animSpan,
+            serverPoints = serverPoints,
+            selectedServerId = selectedServerId,
+            selectedCoord = selectedCoord,
+            isConnected = isConnected,
+            zoomActive = zoomActive,
+            userLat = userLat,
+            userLon = userLon,
+            arcProgress = arcProgress,
+            arcShimmer = arcShimmer,
+            pulse = pulse,
+        )
+    }
+}
 
-        // Solid ocean background — no gradient, no grid, no border (Mullvad look).
-        drawRect(color = ocean, size = size)
+/**
+ * All actual map rendering lives here, outside the @Composable so the
+ * Compose compiler plugin doesn't have to walk a deeply-nested IR tree
+ * (which can blow the JVM stack on CI runners).
+ */
+private fun DrawScope.renderMullvadMap(
+    ocean: Color,
+    landFill: Color,
+    coastStroke: Color,
+    accent: Color,
+    connectedColor: Color,
+    isLight: Boolean,
+    mapDotMuted: Color,
+    animLatC: Float,
+    animLonC: Float,
+    animSpan: Float,
+    serverPoints: List<Triple<String, Double, Double>>,
+    selectedServerId: String?,
+    selectedCoord: Pair<Double, Double>?,
+    isConnected: Boolean,
+    zoomActive: Boolean,
+    userLat: Double,
+    userLon: Double,
+    arcProgress: Float,
+    arcShimmer: Float,
+    pulse: Float,
+) {
+    val w = size.width
+    val h = size.height
 
-        // Compute the projection: figure out what (lat, lon) range maps to
-        // the canvas given the current pan + zoom.
-        val mapAspect = if (h > 0f) w / h else 1f
-        val lonSpan = animSpan.coerceAtLeast(40f)
-        // Latitude span follows canvas aspect (equirectangular: 1° lat = 1° lon at the equator).
-        val latSpan = lonSpan / mapAspect
-        val lonMin = animLonC - lonSpan / 2f
-        val latTop = animLatC + latSpan / 2f
+    drawRect(color = ocean, size = size)
 
-        fun project(lat: Float, lon: Float): Offset {
-            var l = lon
-            while (l - animLonC > 180f) l -= 360f
-            while (l - animLonC < -180f) l += 360f
-            val nx = (l - lonMin) / lonSpan
-            val ny = (latTop - lat) / latSpan
-            return Offset(nx * w, ny * h)
-        }
+    val mapAspect = if (h > 0f) w / h else 1f
+    val lonSpan = animSpan.coerceAtLeast(40f)
+    val latSpan = lonSpan / mapAspect
+    val lonMin = animLonC - lonSpan / 2f
+    val latTop = animLatC + latSpan / 2f
 
-        clipRect(0f, 0f, w, h) {
-            // Smooth landmass: marching-squares Path in normalised [0,1] space,
-            // scaled and panned to match the current projection. Wraps around
-            // the antimeridian by drawing three copies (-1, 0, +1) of the unit
-            // tile horizontally so the world never has a seam.
-            val pixPerLon = w / lonSpan
-            val pixPerLat = h / latSpan
-            val tileW = 360f * pixPerLon
-            val tileH = 180f * pixPerLat
-            // Where the world's left edge (lon = -180, the u=0 column) lands.
-            val baseX = (-180f - lonMin) * pixPerLon
-            // Where the world's top edge (lat = 90, the v=0 row) lands.
-            val baseY = (latTop - 90f) * pixPerLat
+    fun project(lat: Float, lon: Float): Offset {
+        var l = lon
+        while (l - animLonC > 180f) l -= 360f
+        while (l - animLonC < -180f) l += 360f
+        val nx = (l - lonMin) / lonSpan
+        val ny = (latTop - lat) / latSpan
+        return Offset(nx * w, ny * h)
+    }
 
-            val landPath = WorldLandmask.landPathNormalised()
+    clipRect(0f, 0f, w, h) {
+        val pixPerLon = w / lonSpan
+        val pixPerLat = h / latSpan
+        val tileW = 360f * pixPerLon
+        val tileH = 180f * pixPerLat
+        val baseX = (-180f - lonMin) * pixPerLon
+        val baseY = (latTop - 90f) * pixPerLat
 
-            for (k in -1..1) {
-                val ox = baseX + k * tileW
-                if (ox + tileW < -2f || ox > w + 2f) continue
-                translate(left = ox, top = baseY) {
-                    scale(scaleX = tileW, scaleY = tileH, pivot = Offset.Zero) {
+        val landPath = WorldLandmask.landPathNormalised()
+        val coastAlpha = if (isLight) 0.55f else 0.45f
+        val avgTile = (tileW + tileH) * 0.5f
+        val coastWidth = if (avgTile > 0f) 0.9f / avgTile else 0f
+
+        for (k in -1..1) {
+            val ox = baseX + k * tileW
+            if (ox + tileW < -2f || ox > w + 2f) continue
+            translate(left = ox, top = baseY) {
+                scale(scaleX = tileW, scaleY = tileH, pivot = Offset.Zero) {
+                    drawPath(landPath, color = landFill)
+                    if (coastWidth > 0f) {
                         drawPath(
                             landPath,
-                            color = landFill,
+                            color = coastStroke.copy(alpha = coastAlpha),
+                            style = Stroke(width = coastWidth),
                         )
-                        // Path is in unit space; convert ~0.7px coast stroke
-                        // into normalised units via the average tile scale.
-                        val avgTile = (tileW + tileH) * 0.5f
-                        if (avgTile > 0f) {
-                            drawPath(
-                                landPath,
-                                color = coastStroke.copy(alpha = if (isLight) 0.55f else 0.45f),
-                                style = Stroke(width = 0.9f / avgTile),
-                            )
-                        }
                     }
                 }
             }
+        }
 
-            // Server dots — small, faint, Mullvad-style.
-            serverPoints.forEach { (id, lat, lon) ->
-                val pos = project(lat.toFloat(), lon.toFloat())
-                if (pos.x !in -8f..(w + 8f) || pos.y !in -8f..(h + 8f)) return@forEach
-                val isSelected = id == selectedServerId
-                if (isSelected) return@forEach // drawn separately below
-                drawCircle(
-                    color = palette.mapDotMuted.copy(alpha = if (isLight) 0.55f else 0.45f),
-                    radius = 2.2f,
-                    center = pos,
-                )
-            }
+        for (sp in serverPoints) {
+            val id = sp.first
+            val lat = sp.second
+            val lon = sp.third
+            if (id == selectedServerId) continue
+            val pos = project(lat.toFloat(), lon.toFloat())
+            if (pos.x !in -8f..(w + 8f) || pos.y !in -8f..(h + 8f)) continue
+            drawCircle(
+                color = mapDotMuted.copy(alpha = if (isLight) 0.55f else 0.45f),
+                radius = 2.2f,
+                center = pos,
+            )
+        }
 
-            // Connection arc.
-            if (zoomActive && selectedCoord != null) {
-                val from = project(userLat.toFloat(), userLon.toFloat())
-                val to = project(selectedCoord.first.toFloat(), selectedCoord.second.toFloat())
-                val arcColor = if (isConnected) connectedColor else accent
-                drawConnectionArc(from, to, arcColor, arcProgress, arcShimmer)
-            }
-
-            // Mullvad-style location pins: large translucent halo, filled
-            // disc, white inner dot. User pin = green when connected, accent
-            // otherwise. Selected server pin always uses accent.
-            if (zoomActive && selectedCoord != null) {
-                val from = project(userLat.toFloat(), userLon.toFloat())
-                val to = project(selectedCoord.first.toFloat(), selectedCoord.second.toFloat())
-                val userColor = if (isConnected) connectedColor else accent
-                drawMullvadPin(from, userColor, pulse)
-                drawMullvadPin(to, accent, pulse)
-            } else {
-                // Disconnected: highlight the selected server pin if any.
-                val sel = serverPoints.firstOrNull { it.first == selectedServerId }
-                if (sel != null) {
-                    val pos = project(sel.second.toFloat(), sel.third.toFloat())
-                    if (pos.x in -8f..(w + 8f) && pos.y in -8f..(h + 8f)) {
-                        drawMullvadPin(pos, accent, pulse)
-                    }
+        if (zoomActive && selectedCoord != null) {
+            val from = project(userLat.toFloat(), userLon.toFloat())
+            val to = project(selectedCoord.first.toFloat(), selectedCoord.second.toFloat())
+            val arcColor = if (isConnected) connectedColor else accent
+            drawConnectionArc(from, to, arcColor, arcProgress, arcShimmer)
+            val userColor = if (isConnected) connectedColor else accent
+            drawMullvadPin(from, userColor, pulse)
+            drawMullvadPin(to, accent, pulse)
+        } else {
+            val sel = serverPoints.firstOrNull { it.first == selectedServerId }
+            if (sel != null) {
+                val pos = project(sel.second.toFloat(), sel.third.toFloat())
+                if (pos.x in -8f..(w + 8f) && pos.y in -8f..(h + 8f)) {
+                    drawMullvadPin(pos, accent, pulse)
                 }
-                // Always show the user pin so people can see "you are here".
-                val userPos = project(userLat.toFloat(), userLon.toFloat())
-                if (userPos.x in -8f..(w + 8f) && userPos.y in -8f..(h + 8f)) {
-                    drawMullvadPin(userPos, accent.copy(alpha = 0.9f), pulse, small = true)
-                }
+            }
+            val userPos = project(userLat.toFloat(), userLon.toFloat())
+            if (userPos.x in -8f..(w + 8f) && userPos.y in -8f..(h + 8f)) {
+                drawMullvadPin(userPos, accent.copy(alpha = 0.9f), pulse, small = true)
             }
         }
     }
