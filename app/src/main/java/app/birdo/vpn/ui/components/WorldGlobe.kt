@@ -102,6 +102,18 @@ fun WorldGlobe(
         ),
         label = "idleSpin",
     )
+    // Day/night terminator: the sun's longitude sweeps a full revolution
+    // every 2 minutes. Independent of the camera so you can see the shadow
+    // crawl across continents while the globe is still / focused.
+    val sunSpin by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(120_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "sunSpin",
+    )
 
     // One-shot precomputation. ~22 k land cells stored as packed floats.
     val landSamples = remember { precomputeLandSamples() }
@@ -180,6 +192,11 @@ fun WorldGlobe(
     val accent = palette.accent
     val connected = if (isLight) Color(0xFF1F8F4E) else Color(0xFF44D17E)
 
+    // Sun position: slow east-to-west drift in longitude with a small
+    // seasonal-ish latitude tilt so the terminator isn't a perfect vertical.
+    val sunLonDeg = 180f - sunSpin
+    val sunLatDeg = 12f
+
     Canvas(modifier = modifier.fillMaxSize()) {
         renderGlobe(
             stars = stars,
@@ -213,6 +230,8 @@ fun WorldGlobe(
             selectedCoord = selectedCoord,
             userLat = userLat,
             userLon = userLon,
+            sunLatDeg = sunLatDeg,
+            sunLonDeg = sunLonDeg,
         )
     }
 }
@@ -331,6 +350,8 @@ private fun DrawScope.renderGlobe(
     selectedCoord: Pair<Double, Double>?,
     userLat: Double,
     userLon: Double,
+    sunLatDeg: Float,
+    sunLonDeg: Float,
 ) {
     val w = size.width
     val h = size.height
@@ -505,15 +526,91 @@ private fun DrawScope.renderGlobe(
         center = Offset(cx - radius * 0.45f, cy - radius * 0.55f),
     )
 
-    // Faint dots for unselected servers.
+    // ── Day / night terminator ────────────────────────────────────────────
+    // Project the sun direction into camera space; the dark side is the
+    // hemisphere opposite the sun. We draw a soft dark radial overlay
+    // centred on the *anti-sun* point on the disc, plus a faint warm
+    // highlight at the sub-solar point. Both stay inside the disc by being
+    // sized to the radius.
+    run {
+        val sPhi = sunLatDeg * (PI.toFloat() / 180f)
+        val sLam = sunLonDeg * (PI.toFloat() / 180f) - lonRad
+        val sCp = cos(sPhi)
+        val ux = sCp * sin(sLam)
+        val uy = sin(sPhi)
+        val uz = sCp * cos(sLam)
+        val sxCam = ux
+        val syCam = uy * cosLat - uz * sinLat
+        val szCam = uy * sinLat + uz * cosLat
+        val sunPx = cx + sxCam * radius
+        val sunPy = cy - syCam * radius
+        val antiPx = cx - sxCam * radius
+        val antiPy = cy + syCam * radius
+        val nightAlpha = if (isLight) 0.22f else 0.55f
+        val dayAlpha = if (isLight) 0.10f else 0.18f
+        // Night veil — dark blob centred on the anti-solar point, fading out
+        // before reaching the sub-solar side. Sized 1.6× radius so the edge
+        // falls past the day/night boundary without a visible cutoff.
+        drawCircle(
+            brush = Brush.radialGradient(
+                colorStops = arrayOf(
+                    0.0f to Color(0xFF02060F).copy(alpha = nightAlpha),
+                    0.55f to Color(0xFF02060F).copy(alpha = nightAlpha * 0.55f),
+                    1.0f to Color.Transparent,
+                ),
+                center = Offset(antiPx, antiPy),
+                radius = radius * 1.6f,
+            ),
+            radius = radius,
+            center = Offset(cx, cy),
+        )
+        // Subtle warm sunlit hotspot — only meaningful when the sun is on
+        // the visible hemisphere (szCam > 0).
+        if (szCam > 0f) {
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFFFFE6B0).copy(alpha = dayAlpha * szCam),
+                        Color.Transparent,
+                    ),
+                    center = Offset(sunPx, sunPy),
+                    radius = radius * 0.7f,
+                ),
+                radius = radius,
+                center = Offset(cx, cy),
+            )
+        }
+        // Sharper terminator line itself: thin curve where szCam ≈ 0. We
+        // approximate by drawing a slim dark stroke along an ellipse passing
+        // through the limb perpendicular to the sun vector. Cheap & looks
+        // real enough.
+        // (skipped — the gradient already sells the curvature.)
+    }
+
+    // ── Server dots — ALL visible by default so the user sees every choice.
+    // Skip the selected one; it gets a bigger pin in the connection block.
     for (sp in serverPoints) {
         if (sp.first == selectedServerId) continue
-        val pos = project(sp.second, sp.third) ?: continue
-        drawCircle(
-            color = accent.copy(alpha = 0.32f),
-            radius = 1.6f,
-            center = pos,
-        )
+        // Inline projection so we can use tz for back-face culling AND alpha.
+        val phi = (sp.second * PI / 180.0).toFloat()
+        val lam = (sp.third * PI / 180.0).toFloat() - lonRad
+        val cP = cos(phi)
+        val sxs = cP * sin(lam)
+        val sys = sin(phi)
+        val szs = cP * cos(lam)
+        val ty = sys * cosLat - szs * sinLat
+        val tz = sys * sinLat + szs * cosLat
+        if (tz <= 0.02f) continue
+        val px = cx + sxs * radius
+        val py = cy - ty * radius
+        val depth = tz.coerceIn(0f, 1f)
+        val a = 0.55f + 0.45f * depth
+        // Pulse the halo just a touch so the dots feel alive without being noisy.
+        val haloR = 6.5f + pulse * 1.8f
+        drawCircle(color = accent.copy(alpha = 0.18f * a), radius = haloR, center = Offset(px, py))
+        drawCircle(color = accent.copy(alpha = 0.30f * a), radius = haloR * 0.62f, center = Offset(px, py))
+        drawCircle(color = accent.copy(alpha = 0.95f * a), radius = 3.2f, center = Offset(px, py))
+        drawCircle(color = Color.White.copy(alpha = 0.85f * a), radius = 1.3f, center = Offset(px, py))
     }
 
     // Connection: great-circle arc on the sphere (slerp + project), then pins.
