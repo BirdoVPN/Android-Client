@@ -32,7 +32,6 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Policy
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Star
-import androidx.compose.material.icons.outlined.Subscriptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -117,12 +116,6 @@ fun ProfileScreen(
         Spacer(Modifier.height(4.dp))
 
         SectionLabel("Account")
-        ProfileActionRow(
-            icon = Icons.Outlined.Subscriptions,
-            title = "Subscription",
-            subtitle = "Manage billing and plan",
-            onClick = onSubscription,
-        )
         ProfileActionRow(
             icon = Icons.Outlined.CardGiftcard,
             title = "Redeem voucher",

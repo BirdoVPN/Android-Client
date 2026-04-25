@@ -67,7 +67,6 @@ fun SettingsScreen(
     onOpenSubscription: () -> Unit = {},
     onOpenMultiHop: () -> Unit = {},
     onOpenPortForward: () -> Unit = {},
-    onOpenSpeedTest: () -> Unit = {},
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
     Scaffold(
@@ -86,9 +85,28 @@ fun SettingsScreen(
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            // ── Connection Section ───────────────────────────────
+            // ── Appearance ───────────────────────────────────────
+            item { SectionHeader("Appearance") }
+
             item {
-                SectionHeader(stringResource(R.string.settings_section_connection))
+                ThemeModeSelector(
+                    currentMode = state.themeMode,
+                    onModeSelected = onThemeModeChange,
+                )
+            }
+
+            // ── Security ─────────────────────────────────────────
+            item { SectionHeader("Security") }
+
+            item {
+                SettingsToggle(
+                    icon = Icons.Default.Fingerprint,
+                    iconColor = BirdoGreen,
+                    title = "Biometric Lock",
+                    description = "Require fingerprint or PIN to open app",
+                    checked = state.biometricLockEnabled,
+                    onCheckedChange = onBiometricLockChange,
+                )
             }
 
             item {
@@ -102,6 +120,9 @@ fun SettingsScreen(
                     testTag = TestTags.KILL_SWITCH_TOGGLE,
                 )
             }
+
+            // ── Connection ───────────────────────────────────────
+            item { SectionHeader(stringResource(R.string.settings_section_connection)) }
 
             item {
                 SettingsToggle(
@@ -162,10 +183,9 @@ fun SettingsScreen(
                 )
             }
 
-            // ── VPN Protocol Section ─────────────────────────────
-            item {
-                SectionHeader(stringResource(R.string.settings_section_vpn))
-            }
+            // ── VPN ──────────────────────────────────────────────
+            // Unified group: protocol, split tunneling, multi-hop, port forwarding
+            item { SectionHeader("VPN") }
 
             item {
                 SettingsLink(
@@ -175,11 +195,6 @@ fun SettingsScreen(
                     description = stringResource(R.string.settings_vpn_settings_desc),
                     onClick = onOpenVpnSettings,
                 )
-            }
-
-            // ── Split Tunneling Section ──────────────────────────
-            item {
-                SectionHeader(stringResource(R.string.settings_section_split_tunnel))
             }
 
             item {
@@ -205,11 +220,6 @@ fun SettingsScreen(
                 }
             }
 
-            // ── Advanced Section ─────────────────────────────────
-            item {
-                SectionHeader(stringResource(R.string.settings_section_advanced))
-            }
-
             item {
                 SettingsLink(
                     icon = Icons.AutoMirrored.Filled.AltRoute,
@@ -227,44 +237,6 @@ fun SettingsScreen(
                     title = stringResource(R.string.settings_port_forward),
                     description = stringResource(R.string.settings_port_forward_desc),
                     onClick = onOpenPortForward,
-                )
-            }
-
-            item {
-                SettingsLink(
-                    icon = Icons.Default.Speed,
-                    iconColor = BirdoBlue,
-                    title = stringResource(R.string.settings_speed_test),
-                    description = stringResource(R.string.settings_speed_test_desc),
-                    onClick = onOpenSpeedTest,
-                )
-            }
-
-            // ── Security Section ──────────────────────────────────
-            item {
-                SectionHeader("Security")
-            }
-
-            item {
-                SettingsToggle(
-                    icon = Icons.Default.Fingerprint,
-                    iconColor = BirdoGreen,
-                    title = "Biometric Lock",
-                    description = "Require fingerprint or PIN to open app",
-                    checked = state.biometricLockEnabled,
-                    onCheckedChange = onBiometricLockChange,
-                )
-            }
-
-            // ── Appearance Section ───────────────────────────────
-            item {
-                SectionHeader("Appearance")
-            }
-
-            item {
-                ThemeModeSelector(
-                    currentMode = state.themeMode,
-                    onModeSelected = onThemeModeChange,
                 )
             }
 

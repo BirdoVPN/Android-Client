@@ -434,9 +434,6 @@ fun BirdoNavGraph(
                         onOpenPortForward = {
                             navController.navigate(Screen.PortForward.route)
                         },
-                        onOpenSpeedTest = {
-                            navController.navigate(Screen.SpeedTest.route)
-                        },
                     )
                 }
             }
@@ -545,18 +542,6 @@ fun BirdoNavGraph(
                 }
             }
 
-            // ── Speed Test ─────────────────────────────────────────
-            composable(
-                Screen.SpeedTest.route,
-                enterTransition = { slideInHorizontally(initialOffsetX = { it }) },
-                exitTransition = { slideOutHorizontally(targetOffsetX = { it }) },
-            ) {
-                AdaptiveContainer {
-                    app.birdo.vpn.ui.screen.SpeedTestScreen(
-                        onNavigateBack = { navController.popBackStack() },
-                    )
-                }
-            }
         }
         } // end Column
         } // end Box

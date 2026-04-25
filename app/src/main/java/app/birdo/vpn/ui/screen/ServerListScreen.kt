@@ -224,6 +224,20 @@ fun ServerListScreen(
 
 // ── Server Card ─────────────────────────────────────────────────────────────
 
+private val ServerCardShape = RoundedCornerShape(14.dp)
+private val FlagShape = RoundedCornerShape(10.dp)
+private val LoadBarShape = RoundedCornerShape(2.dp)
+
+/**
+ * Flat, allocation-free server card optimised for fast scrolling.
+ *
+ * Previous version wrapped the row in [BirdoCard] (extra Box layers) and
+ * allocated a new `Brush.linearGradient` per recomposition for both the card
+ * border and the load-bar fill. With 100+ rows that dominated frame cost.
+ *
+ * This version uses solid colors only, hoists shapes to file-level vals, and
+ * remembers all per-row derived state keyed on inputs that actually change.
+ */
 @Composable
 internal fun ServerCard(
     server: VpnServer,
@@ -232,120 +246,109 @@ internal fun ServerCard(
     onSelect: () -> Unit,
     onToggleFavorite: () -> Unit,
 ) {
-    val borderBrush = if (isSelected)
-        androidx.compose.ui.graphics.Brush.linearGradient(listOf(BirdoBrand.PurpleSoft, BirdoBrand.Pink))
-    else BirdoBrand.GlassStrokeGradient
+    val isOnline = server.isOnline
+    val load = server.load
+    val loadFraction = remember(load) { (load / 100f).coerceIn(0f, 1f) }
+    val loadCol = remember(load) { loadColor(load) }
+    val borderColor = if (isSelected) BirdoBrand.PurpleSoft else BirdoBrand.HairlineSoft
+    val surfaceColor = if (isSelected) BirdoBrand.Surface2 else BirdoBrand.Surface1
+    val nameColor = if (isOnline) Color.White else BirdoWhite40
 
-    BirdoCard(
+    val flag = remember(server.countryCode) { countryCodeToFlag(server.countryCode) }
+    val location = remember(server.city, server.country) {
+        if (server.city.isNotBlank()) "${server.city}, ${server.country}" else server.country
+    }
+
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = server.isOnline, role = Role.Button) { onSelect() },
-        cornerRadius = 14.dp,
-        surface = if (isSelected) BirdoBrand.Surface2 else BirdoBrand.Surface1,
-        border = borderBrush,
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+            .clip(ServerCardShape)
+            .background(surfaceColor)
+            .border(if (isSelected) 1.5.dp else 1.dp, borderColor, ServerCardShape)
+            .clickable(enabled = isOnline, role = Role.Button, onClick = onSelect)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .then(if (!isOnline) Modifier.alpha(0.5f) else Modifier),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
+        // Country flag badge
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .then(if (!server.isOnline) Modifier.alpha(0.5f) else Modifier),
-            verticalAlignment = Alignment.CenterVertically,
+                .size(40.dp)
+                .clip(FlagShape)
+                .background(BirdoWhite05),
+            contentAlignment = Alignment.Center,
         ) {
-            // Country flag badge
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(BirdoWhite05)
-                    .border(1.dp, BirdoBrand.HairlineSoft, RoundedCornerShape(10.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = countryCodeToFlag(server.countryCode),
-                    fontSize = 20.sp,
-                )
-            }
+            Text(text = flag, fontSize = 20.sp)
+        }
 
-            Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(12.dp))
 
-            // Server info
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(
-                        text = server.name,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (server.isOnline) Color.White else BirdoWhite40,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    if (server.isPremium) Text("⚡", fontSize = 11.sp)
-                    if (server.isStreaming) Text("🎬", fontSize = 11.sp)
-                    if (server.isP2p) Text("⬇", fontSize = 11.sp)
-                }
+        // Server info
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = if (server.city.isNotBlank()) "${server.city}, ${server.country}" else server.country,
-                    fontSize = 12.sp,
-                    color = BirdoWhite60,
+                    text = server.name,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = nameColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
             }
+            Text(
+                text = location,
+                fontSize = 12.sp,
+                color = BirdoWhite60,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
 
-            Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(8.dp))
 
-            // Load indicator
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.Center,
+        // Load indicator (solid colors only — no gradient brush)
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = "$load%",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = FontFamily.Monospace,
+                color = loadCol,
+            )
+            Spacer(Modifier.height(3.dp))
+            Box(
+                modifier = Modifier
+                    .width(36.dp)
+                    .height(4.dp)
+                    .clip(LoadBarShape)
+                    .background(BirdoWhite10),
             ) {
-                Text(
-                    text = "${server.load}%",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.Monospace,
-                    color = loadColor(server.load),
-                )
-                Spacer(Modifier.height(3.dp))
                 Box(
                     modifier = Modifier
-                        .width(36.dp)
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(BirdoWhite10),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(server.load / 100f)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(
-                                androidx.compose.ui.graphics.Brush.horizontalGradient(
-                                    listOf(loadColor(server.load).copy(alpha = 0.6f), loadColor(server.load))
-                                )
-                            ),
-                    )
-                }
-            }
-
-            Spacer(Modifier.width(6.dp))
-
-            // Favorite star
-            IconButton(
-                onClick = onToggleFavorite,
-                modifier = Modifier.size(36.dp),
-            ) {
-                Icon(
-                    imageVector = if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
-                    contentDescription = if (isFavorite) stringResource(R.string.cd_remove_favorite) else stringResource(R.string.cd_add_favorite),
-                    tint = if (isFavorite) BirdoYellowLight else BirdoWhite40,
-                    modifier = Modifier.size(18.dp),
+                        .fillMaxHeight()
+                        .fillMaxWidth(loadFraction)
+                        .background(loadCol),
                 )
             }
+        }
+
+        Spacer(Modifier.width(6.dp))
+
+        // Favorite star (lightweight Box.clickable — no IconButton ripple stack)
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .clickable(role = Role.Button, onClick = onToggleFavorite),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
+                contentDescription = if (isFavorite) stringResource(R.string.cd_remove_favorite) else stringResource(R.string.cd_add_favorite),
+                tint = if (isFavorite) BirdoYellowLight else BirdoWhite40,
+                modifier = Modifier.size(18.dp),
+            )
         }
     }
 }
