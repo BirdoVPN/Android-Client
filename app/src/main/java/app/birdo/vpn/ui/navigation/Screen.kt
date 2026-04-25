@@ -12,5 +12,4 @@ sealed class Screen(val route: String) {
     data object MultiHop : Screen("multi_hop")
     data object PortForward : Screen("port_forward")
     data object Subscription : Screen("subscription")
-    data object SpeedTest : Screen("speed_test")
 }
