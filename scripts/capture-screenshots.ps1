@@ -9,7 +9,7 @@ param(
     [ValidateSet('phone','tablet')] [string]$Form = 'phone',
     [string]$Avd,
     [string]$Account = 'owner@birdo.app',
-    [string]$Password = 'EeimFNSzZ4GwXGB4ECvBAbvS.',
+    [string]$Password = $(if ($env:BIRDO_TEST_PASSWORD) { $env:BIRDO_TEST_PASSWORD } else { 'CHANGE_ME' }),
     [switch]$SkipBoot,
     [switch]$SkipInstall,
     [switch]$KeepEmulator
