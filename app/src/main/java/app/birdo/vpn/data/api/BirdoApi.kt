@@ -133,4 +133,11 @@ interface BirdoApi {
     suspend fun deletePortForward(
         @Path("id") id: String,
     ): Response<Unit>
+
+    // ── Google Play Billing ──────────────────────────────────────
+
+    @POST("payments/google/acknowledge")
+    suspend fun acknowledgeGooglePlayPurchase(
+        @Body request: GooglePlayAcknowledgeRequest,
+    ): Response<GooglePlayAcknowledgeResponse>
 }

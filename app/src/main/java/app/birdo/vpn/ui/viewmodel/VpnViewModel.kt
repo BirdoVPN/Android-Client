@@ -70,6 +70,16 @@ class VpnViewModel @Inject constructor(
         startStateSync()
         // FIX-2-9: Auto-connect on startup if preference is enabled
         autoConnectIfEnabled()
+        // Pre-publish any cached subscription so Profile tab is never empty on first paint.
+        repository.cachedSubscriptionOrNull()?.let {
+            _uiState.value = _uiState.value.copy(subscription = it)
+        }
+        // If we already have a token, start fetching subscription right away so it's
+        // ready by the time the user taps the Profile tab. This eliminates the
+        // "RECON → SOVEREIGN" flicker users were seeing on cold start.
+        if (tokenManager.isLoggedIn()) {
+            fetchSubscription()
+        }
         // NOTE: Heartbeat is handled by VpnManager.startHeartbeat() which includes
         // key rotation, quality reports, and session-invalid disconnect. No redundant
         // heartbeat needed here — VpnManager is the authoritative keepalive source.
@@ -173,9 +183,24 @@ class VpnViewModel @Inject constructor(
         }
     }
 
-    fun fetchSubscription() {
+    /**
+     * Fetch the current subscription. Set [forceRefresh] to bypass the
+     * 30s cache (e.g. immediately after a voucher redemption).
+     *
+     * If a fresh cached value exists it is published immediately so the
+     * UI never falls back to the default "RECON" placeholder.
+     */
+    fun fetchSubscription(forceRefresh: Boolean = false) {
+        // Publish cached value immediately so the Profile tab never shows stale RECON.
+        if (!forceRefresh) {
+            repository.cachedSubscriptionOrNull()?.let {
+                if (_uiState.value.subscription != it) {
+                    _uiState.value = _uiState.value.copy(subscription = it)
+                }
+            }
+        }
         viewModelScope.launch {
-            when (val result = repository.getSubscription()) {
+            when (val result = repository.getSubscription(forceRefresh)) {
                 is ApiResult.Success -> {
                     _uiState.value = _uiState.value.copy(subscription = result.data)
                 }
@@ -196,7 +221,7 @@ class VpnViewModel @Inject constructor(
                 is ApiResult.Success -> {
                     if (result.data.ok) {
                         // Refresh subscription so SubscriptionScreen shows new period
-                        fetchSubscription()
+                        fetchSubscription(forceRefresh = true)
                     }
                     onResult(result.data)
                 }

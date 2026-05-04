@@ -36,14 +36,32 @@ class BirdoRepository @Inject constructor(
     @Volatile private var cachedServers: List<VpnServer>? = null
     @Volatile private var serverCacheTimestamp: Long = 0L
 
+    // ── Subscription cache ──────────────────────────────────────
+    @Volatile private var cachedSubscription: SubscriptionStatus? = null
+    @Volatile private var subscriptionCacheTimestamp: Long = 0L
+
     /** Server list is considered fresh for 60 seconds. */
     companion object {
         private const val SERVER_CACHE_TTL_MS = 60_000L
+        /** Subscription is considered fresh for 30 seconds. */
+        private const val SUBSCRIPTION_CACHE_TTL_MS = 30_000L
     }
 
     fun invalidateServerCache() {
         cachedServers = null
         serverCacheTimestamp = 0L
+    }
+
+    fun invalidateSubscriptionCache() {
+        cachedSubscription = null
+        subscriptionCacheTimestamp = 0L
+    }
+
+    /** Last cached subscription, if still fresh — for instant UI on tab switch. */
+    fun cachedSubscriptionOrNull(): SubscriptionStatus? {
+        val cached = cachedSubscription ?: return null
+        return if (System.currentTimeMillis() - subscriptionCacheTimestamp < SUBSCRIPTION_CACHE_TTL_MS) cached
+        else null
     }
 
     // ── Auth ─────────────────────────────────────────────────────
@@ -119,9 +137,9 @@ class BirdoRepository @Inject constructor(
         }
     }
 
-    suspend fun loginAnonymous(deviceId: String): ApiResult<AnonymousLoginResponse> {
+    suspend fun loginAnonymous(anonymousId: String, password: String? = null): ApiResult<AnonymousLoginResponse> {
         return try {
-            val response = api.loginAnonymous(AnonymousLoginRequest(deviceId))
+            val response = api.loginAnonymous(AnonymousLoginRequest(anonymousId, password))
             if (response.isSuccessful && response.body() != null) {
                 val body = response.body()!!
                 val tokens = body.tokens
@@ -146,6 +164,7 @@ class BirdoRepository @Inject constructor(
         try { api.logout() } catch (_: Exception) { /* best effort */ }
         tokenManager.clearAll()
         invalidateServerCache()
+        invalidateSubscriptionCache()
     }
 
     /**
@@ -210,8 +229,40 @@ class BirdoRepository @Inject constructor(
     suspend fun getProfile(): ApiResult<UserProfile> =
         withAutoRefresh("Failed to get profile") { api.getProfile() }
 
-    suspend fun getSubscription(): ApiResult<SubscriptionStatus> =
-        withAutoRefresh("Failed to get subscription") { api.getSubscription() }
+    suspend fun acknowledgeGooglePlayPurchase(
+        productId: String,
+        purchaseToken: String,
+        packageName: String,
+        orderId: String?,
+    ): ApiResult<GooglePlayAcknowledgeResponse> {
+        val result = withAutoRefresh("Failed to acknowledge purchase") {
+            api.acknowledgeGooglePlayPurchase(
+                GooglePlayAcknowledgeRequest(
+                    productId = productId,
+                    purchaseToken = purchaseToken,
+                    packageName = packageName,
+                    orderId = orderId,
+                )
+            )
+        }
+        // A successful acknowledge changes the user's plan — bust the cache.
+        if (result is ApiResult.Success && result.data.ok) {
+            invalidateSubscriptionCache()
+        }
+        return result
+    }
+
+    suspend fun getSubscription(forceRefresh: Boolean = false): ApiResult<SubscriptionStatus> {
+        if (!forceRefresh) {
+            cachedSubscriptionOrNull()?.let { return ApiResult.Success(it) }
+        }
+        val result = withAutoRefresh("Failed to get subscription") { api.getSubscription() }
+        if (result is ApiResult.Success) {
+            cachedSubscription = result.data
+            subscriptionCacheTimestamp = System.currentTimeMillis()
+        }
+        return result
+    }
 
     /**
      * Redeem a voucher code. Returns the parsed RedeemVoucherResponse on
