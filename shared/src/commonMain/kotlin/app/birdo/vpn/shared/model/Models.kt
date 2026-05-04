@@ -104,7 +104,8 @@ data class SubscriptionStatus(
 
 @Serializable
 data class AnonymousLoginRequest(
-    @SerialName("deviceId") val deviceId: String,
+    @SerialName("anonymousId") val anonymousId: String,
+    val password: String? = null,
 )
 
 @Serializable
@@ -112,6 +113,8 @@ data class AnonymousLoginResponse(
     val ok: Boolean = false,
     @SerialName("anonymousId") val anonymousId: String? = null,
     val tokens: TokenPair? = null,
+    @SerialName("requiresTwoFactor") val requiresTwoFactor: Boolean = false,
+    @SerialName("challengeToken") val challengeToken: String? = null,
 )
 
 // ─── Vouchers ────────────────────────────────────────────────────────────────
@@ -303,6 +306,30 @@ data class CreatePortForwardResponse(
     val success: Boolean = false,
     val portForward: PortForward? = null,
     val message: String? = null,
+)
+
+// ─── Google Play Billing ─────────────────────────────────────────────────────
+
+/**
+ * Server-side acknowledgement of a Google Play purchase. The mobile client
+ * sends the purchaseToken + productId after a successful in-app purchase;
+ * the backend validates the receipt against Google Play Developer API and
+ * provisions the matching subscription tier on the user's account.
+ */
+@Serializable
+data class GooglePlayAcknowledgeRequest(
+    val productId: String,
+    val purchaseToken: String,
+    val packageName: String,
+    val orderId: String? = null,
+)
+
+@Serializable
+data class GooglePlayAcknowledgeResponse(
+    val ok: Boolean = false,
+    val plan: String = "RECON",
+    val newPeriodEnd: String? = null,
+    val error: String? = null,
 )
 
 // ─── Key Rotation ────────────────────────────────────────────────────────────

@@ -57,6 +57,10 @@ typealias PortForward = app.birdo.vpn.shared.model.PortForward
 typealias CreatePortForwardRequest = app.birdo.vpn.shared.model.CreatePortForwardRequest
 typealias CreatePortForwardResponse = app.birdo.vpn.shared.model.CreatePortForwardResponse
 
+// ─── Google Play Billing ─────────────────────────────────────────────────────
+typealias GooglePlayAcknowledgeRequest = app.birdo.vpn.shared.model.GooglePlayAcknowledgeRequest
+typealias GooglePlayAcknowledgeResponse = app.birdo.vpn.shared.model.GooglePlayAcknowledgeResponse
+
 // ─── Key Rotation ────────────────────────────────────────────────────────────
 typealias KeyRotationRequest = app.birdo.vpn.shared.model.KeyRotationRequest
 typealias KeyRotationResponse = app.birdo.vpn.shared.model.KeyRotationResponse

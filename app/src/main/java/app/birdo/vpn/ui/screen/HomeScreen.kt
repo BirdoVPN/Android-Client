@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.AltRoute
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -50,6 +51,7 @@ fun HomeScreen(
     killSwitchEnabled: Boolean,
     favoriteServers: Set<String> = emptySet(),
     onConnect: () -> Unit,
+    onConnectMultiHop: (entryId: String, exitId: String) -> Unit = { _, _ -> },
     onDisconnect: () -> Unit,
     onSelectServer: (VpnServer) -> Unit = {},
     onToggleFavorite: (String) -> Unit = {},
@@ -65,6 +67,14 @@ fun HomeScreen(
     val isKillSwitchActive = state.killSwitchActive
     var showServerSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // Multi-Hop state — lifted into HomeScreen so the user can configure & launch
+    // a double-VPN tunnel directly from the Connect tab without diving into Settings.
+    var multiHopEnabled by remember { mutableStateOf(false) }
+    var multiHopEntry by remember { mutableStateOf<VpnServer?>(null) }
+    var multiHopExit by remember { mutableStateOf<VpnServer?>(null) }
+    var multiHopPickerTarget by remember { mutableStateOf<MultiHopTarget?>(null) }
+    val multiHopSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Mullvad-style full-bleed background map. Everything else floats
@@ -160,14 +170,33 @@ fun HomeScreen(
 
                     Spacer(Modifier.height(10.dp))
 
+                    MultiHopBar(
+                        enabled = multiHopEnabled,
+                        entry = multiHopEntry,
+                        exit = multiHopExit,
+                        onToggle = { value ->
+                            multiHopEnabled = value
+                            if (!value) { multiHopEntry = null; multiHopExit = null }
+                        },
+                        onPickEntry = { multiHopPickerTarget = MultiHopTarget.Entry },
+                        onPickExit = { multiHopPickerTarget = MultiHopTarget.Exit },
+                    )
+
+                    Spacer(Modifier.height(10.dp))
+
                     CompactConnectButton(
                         isConnected = isConnected,
                         isConnecting = isConnecting,
                         isDisconnecting = isDisconnecting,
+                        multiHopReady = multiHopEnabled && multiHopEntry != null && multiHopExit != null && multiHopEntry?.id != multiHopExit?.id,
+                        multiHopArmed = multiHopEnabled,
                         onClick = {
                             when {
                                 isConnected -> onDisconnect()
                                 isConnecting || isDisconnecting -> Unit
+                                multiHopEnabled && multiHopEntry != null && multiHopExit != null && multiHopEntry?.id != multiHopExit?.id ->
+                                    onConnectMultiHop(multiHopEntry!!.id, multiHopExit!!.id)
+                                multiHopEnabled -> Unit // disabled until both selected
                                 else -> onConnect()
                             }
                         },
@@ -189,6 +218,152 @@ fun HomeScreen(
             onToggleFavorite = onToggleFavorite,
             onDismiss = { showServerSheet = false },
         )
+    }
+
+    multiHopPickerTarget?.let { target ->
+        ServerSelectorSheet(
+            servers = state.servers,
+            selectedServer = if (target == MultiHopTarget.Entry) multiHopEntry else multiHopExit,
+            favoriteServers = favoriteServers,
+            sheetState = multiHopSheetState,
+            onSelectServer = { srv ->
+                if (target == MultiHopTarget.Entry) multiHopEntry = srv
+                else multiHopExit = srv
+                multiHopPickerTarget = null
+            },
+            onToggleFavorite = onToggleFavorite,
+            onDismiss = { multiHopPickerTarget = null },
+        )
+    }
+}
+
+// ── Multi-Hop Bar ───────────────────────────────────────────────────────────
+private enum class MultiHopTarget { Entry, Exit }
+
+@Composable
+private fun MultiHopBar(
+    enabled: Boolean,
+    entry: VpnServer?,
+    exit: VpnServer?,
+    onToggle: (Boolean) -> Unit,
+    onPickEntry: () -> Unit,
+    onPickExit: () -> Unit,
+) {
+    val palette = BirdoColors.current
+    val accent = if (enabled) BirdoBrand.Purple else palette.onSurfaceFaint
+
+    BirdoCard(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 16.dp,
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.AutoMirrored.Filled.AltRoute,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Multi-Hop",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        if (enabled) "Route through two servers" else "Off — single-hop",
+                        color = BirdoWhite60,
+                        fontSize = 11.sp,
+                    )
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = onToggle,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = BirdoBrand.Purple,
+                        uncheckedThumbColor = BirdoWhite60,
+                        uncheckedTrackColor = BirdoWhite10,
+                    ),
+                )
+            }
+
+            if (enabled) {
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    MultiHopChip(
+                        label = "Entry",
+                        server = entry,
+                        onClick = onPickEntry,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Icon(
+                        Icons.Default.ArrowForward,
+                        contentDescription = null,
+                        tint = BirdoWhite40,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    MultiHopChip(
+                        label = "Exit",
+                        server = exit,
+                        onClick = onPickExit,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (entry != null && exit != null && entry.id == exit.id) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Entry and exit must be different servers.",
+                        color = BirdoRed,
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MultiHopChip(
+    label: String,
+    server: VpnServer?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(BirdoWhite05)
+            .border(1.dp, BirdoBrand.HairlineSoft, RoundedCornerShape(12.dp))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        Column {
+            Text(label.uppercase(), color = BirdoWhite40, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Spacer(Modifier.height(2.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = if (server != null) countryCodeToFlag(server.countryCode) else "🌐",
+                    fontSize = 16.sp,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = server?.city?.ifBlank { server.country } ?: "Choose…",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 
@@ -298,18 +473,25 @@ private fun CompactConnectButton(
     isConnected: Boolean,
     isConnecting: Boolean,
     isDisconnecting: Boolean,
+    multiHopReady: Boolean = false,
+    multiHopArmed: Boolean = false,
     onClick: () -> Unit,
 ) {
     val busy = isConnecting || isDisconnecting
+    val multiHopBlocked = multiHopArmed && !multiHopReady && !isConnected
     val brush: Brush = when {
         isConnected -> Brush.linearGradient(listOf(BirdoGreen, Color(0xFF166534)))
         busy -> Brush.linearGradient(listOf(BirdoBrand.PurpleSoft, BirdoBrand.PurpleDeep))
+        multiHopBlocked -> Brush.linearGradient(listOf(BirdoWhite10, BirdoWhite10))
+        multiHopReady -> Brush.linearGradient(listOf(BirdoBrand.Purple, BirdoBrand.PurpleDeep))
         else -> BirdoBrand.PrimaryGradient
     }
     val label = when {
         isConnected -> stringResource(R.string.disconnect)
         isConnecting -> stringResource(R.string.connecting)
         isDisconnecting -> stringResource(R.string.disconnecting)
+        multiHopBlocked -> "Choose entry & exit"
+        multiHopReady -> "Connect Multi-Hop"
         else -> stringResource(R.string.connect)
     }
     val shadowColor = if (isConnected) BirdoGreenShadow else BirdoBrand.Purple.copy(alpha = 0.45f)
