@@ -16,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.launch
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
@@ -68,13 +69,20 @@ fun HomeScreen(
     var showServerSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    // Multi-Hop state — lifted into HomeScreen so the user can configure & launch
-    // a double-VPN tunnel directly from the Connect tab without diving into Settings.
+    // Multi-Hop is a SOVEREIGN-only feature. Free / OPERATIVE users see the
+    // toggle but tapping it surfaces an upgrade prompt rather than enabling it.
+    val isSovereign = state.subscription?.plan?.equals("SOVEREIGN", ignoreCase = true) == true
+
+    // Multi-Hop state — toggle lives in the top bar, server selection happens
+    // inline (the single ServerSelector becomes Entry → Exit when armed).
     var multiHopEnabled by remember { mutableStateOf(false) }
     var multiHopEntry by remember { mutableStateOf<VpnServer?>(null) }
     var multiHopExit by remember { mutableStateOf<VpnServer?>(null) }
     var multiHopPickerTarget by remember { mutableStateOf<MultiHopTarget?>(null) }
     val multiHopSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Mullvad-style full-bleed background map. Everything else floats
@@ -101,7 +109,27 @@ fun HomeScreen(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            HomeTopBar(userEmail = userEmail, onLogout = onLogout)
+            HomeTopBar(
+                userEmail = userEmail,
+                multiHopEnabled = multiHopEnabled,
+                multiHopUnlocked = isSovereign,
+                onToggleMultiHop = {
+                    if (!isSovereign) {
+                        scope.launch {
+                            snackbarHostState.showSnackbar("Multi-Hop is a SOVEREIGN feature. Upgrade to enable.")
+                        }
+                    } else {
+                        // Disconnect any in-flight tunnel before swapping modes.
+                        if (isConnected) onDisconnect()
+                        multiHopEnabled = !multiHopEnabled
+                        if (!multiHopEnabled) {
+                            multiHopEntry = null
+                            multiHopExit = null
+                        }
+                    }
+                },
+                onLogout = onLogout,
+            )
 
             // Status pill floats just below the top bar.
             Spacer(Modifier.height(12.dp))
@@ -156,31 +184,27 @@ fun HomeScreen(
                         Spacer(Modifier.height(10.dp))
                     }
 
-                    ServerSelector(
-                        state = state,
-                        enabled = !isConnecting && !isDisconnecting,
-                        onClick = {
-                            if (state.servers.isNotEmpty()) {
-                                showServerSheet = true
-                            } else {
-                                onOpenServers()
-                            }
-                        },
-                    )
-
-                    Spacer(Modifier.height(10.dp))
-
-                    MultiHopBar(
-                        enabled = multiHopEnabled,
-                        entry = multiHopEntry,
-                        exit = multiHopExit,
-                        onToggle = { value ->
-                            multiHopEnabled = value
-                            if (!value) { multiHopEntry = null; multiHopExit = null }
-                        },
-                        onPickEntry = { multiHopPickerTarget = MultiHopTarget.Entry },
-                        onPickExit = { multiHopPickerTarget = MultiHopTarget.Exit },
-                    )
+                    if (multiHopEnabled) {
+                        MultiHopServerPair(
+                            entry = multiHopEntry,
+                            exit = multiHopExit,
+                            enabled = !isConnecting && !isDisconnecting,
+                            onPickEntry = { multiHopPickerTarget = MultiHopTarget.Entry },
+                            onPickExit = { multiHopPickerTarget = MultiHopTarget.Exit },
+                        )
+                    } else {
+                        ServerSelector(
+                            state = state,
+                            enabled = !isConnecting && !isDisconnecting,
+                            onClick = {
+                                if (state.servers.isNotEmpty()) {
+                                    showServerSheet = true
+                                } else {
+                                    onOpenServers()
+                                }
+                            },
+                        )
+                    }
 
                     Spacer(Modifier.height(10.dp))
 
@@ -206,6 +230,11 @@ fun HomeScreen(
                 }
             }
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 
     if (showServerSheet) {
@@ -240,129 +269,164 @@ fun HomeScreen(
 // ── Multi-Hop Bar ───────────────────────────────────────────────────────────
 private enum class MultiHopTarget { Entry, Exit }
 
+/** Compact icon toggle that lives in the top-left of the Connect screen. */
 @Composable
-private fun MultiHopBar(
+private fun MultiHopTopAction(
     enabled: Boolean,
-    entry: VpnServer?,
-    exit: VpnServer?,
-    onToggle: (Boolean) -> Unit,
-    onPickEntry: () -> Unit,
-    onPickExit: () -> Unit,
+    unlocked: Boolean,
+    onClick: () -> Unit,
 ) {
-    val palette = BirdoColors.current
-    val accent = if (enabled) BirdoBrand.Purple else palette.onSurfaceFaint
+    val tint = when {
+        !unlocked -> BirdoWhite40
+        enabled -> BirdoBrand.Purple
+        else -> Color.White
+    }
+    val bg = if (enabled && unlocked) BirdoBrand.Purple.copy(alpha = 0.18f) else BirdoWhite05
+    val border = if (enabled && unlocked) BirdoBrand.Purple.copy(alpha = 0.55f) else BirdoBrand.HairlineSoft
 
-    BirdoCard(
-        modifier = Modifier.fillMaxWidth(),
-        cornerRadius = 16.dp,
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(bg)
+            .border(1.dp, border, RoundedCornerShape(12.dp))
+            .clickable(role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.AltRoute,
+            contentDescription = "Multi-Hop",
+            tint = tint,
+            modifier = Modifier.size(20.dp),
+        )
+        if (!unlocked) {
+            // Tiny lock badge in the lower-right corner to signal SOVEREIGN-only.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(2.dp)
+                    .size(14.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.6f)),
+                contentAlignment = Alignment.Center,
+            ) {
                 Icon(
-                    Icons.AutoMirrored.Filled.AltRoute,
+                    imageVector = Icons.Default.Lock,
                     contentDescription = null,
-                    tint = accent,
-                    modifier = Modifier.size(20.dp),
+                    tint = Color.White,
+                    modifier = Modifier.size(9.dp),
                 )
-                Spacer(Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "Multi-Hop",
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        if (enabled) "Route through two servers" else "Off — single-hop",
-                        color = BirdoWhite60,
-                        fontSize = 11.sp,
-                    )
-                }
-                Switch(
-                    checked = enabled,
-                    onCheckedChange = onToggle,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = BirdoBrand.Purple,
-                        uncheckedThumbColor = BirdoWhite60,
-                        uncheckedTrackColor = BirdoWhite10,
-                    ),
-                )
-            }
-
-            if (enabled) {
-                Spacer(Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    MultiHopChip(
-                        label = "Entry",
-                        server = entry,
-                        onClick = onPickEntry,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Icon(
-                        Icons.Default.ArrowForward,
-                        contentDescription = null,
-                        tint = BirdoWhite40,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    MultiHopChip(
-                        label = "Exit",
-                        server = exit,
-                        onClick = onPickExit,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                if (entry != null && exit != null && entry.id == exit.id) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "Entry and exit must be different servers.",
-                        color = BirdoRed,
-                        fontSize = 11.sp,
-                    )
-                }
             }
         }
     }
 }
 
+/** When Multi-Hop is armed the single ServerSelector is replaced by two
+ *  full-width selectors, one for the entry server and one for the exit. */
 @Composable
-private fun MultiHopChip(
+private fun MultiHopServerPair(
+    entry: VpnServer?,
+    exit: VpnServer?,
+    enabled: Boolean,
+    onPickEntry: () -> Unit,
+    onPickExit: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        MultiHopServerCard(
+            label = "Entry server",
+            server = entry,
+            enabled = enabled,
+            onClick = onPickEntry,
+        )
+        Spacer(Modifier.height(8.dp))
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = Icons.Default.ArrowDownward,
+                contentDescription = null,
+                tint = BirdoWhite40,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        MultiHopServerCard(
+            label = "Exit server",
+            server = exit,
+            enabled = enabled,
+            onClick = onPickExit,
+        )
+        if (entry != null && exit != null && entry.id == exit.id) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Entry and exit must be different servers.",
+                color = BirdoRed,
+                fontSize = 11.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun MultiHopServerCard(
     label: String,
     server: VpnServer?,
+    enabled: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(BirdoWhite05)
-            .border(1.dp, BirdoBrand.HairlineSoft, RoundedCornerShape(12.dp))
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+    BirdoCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+        cornerRadius = 16.dp,
+        contentPadding = PaddingValues(14.dp),
     ) {
-        Column {
-            Text(label.uppercase(), color = BirdoWhite40, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-            Spacer(Modifier.height(2.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(BirdoWhite05)
+                    .border(1.dp, BirdoBrand.HairlineSoft, RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
                 Text(
                     text = if (server != null) countryCodeToFlag(server.countryCode) else "🌐",
-                    fontSize = 16.sp,
+                    fontSize = 22.sp,
                 )
-                Spacer(Modifier.width(6.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = server?.city?.ifBlank { server.country } ?: "Choose…",
+                    text = label.uppercase(),
+                    color = BirdoBrand.Purple,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = server?.name ?: "Choose…",
                     color = Color.White,
-                    fontSize = 12.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (server != null) {
+                    Text(
+                        text = "${server.city.ifBlank { server.country }}  ·  ${stringResource(R.string.server_load, server.load)}",
+                        color = BirdoWhite60,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = stringResource(R.string.cd_select_server),
+                tint = BirdoWhite40,
+                modifier = Modifier.size(22.dp),
+            )
         }
     }
 }
@@ -370,7 +434,13 @@ private fun MultiHopChip(
 // ── Top Bar ─────────────────────────────────────────────────────────────────
 
 @Composable
-private fun HomeTopBar(userEmail: String?, onLogout: () -> Unit) {
+private fun HomeTopBar(
+    userEmail: String?,
+    multiHopEnabled: Boolean,
+    multiHopUnlocked: Boolean,
+    onToggleMultiHop: () -> Unit,
+    onLogout: () -> Unit,
+) {
     val palette = BirdoColors.current
     Surface(color = palette.surface.copy(alpha = 0.78f), tonalElevation = 0.dp) {
         Column {
@@ -382,6 +452,12 @@ private fun HomeTopBar(userEmail: String?, onLogout: () -> Unit) {
                     .padding(horizontal = 16.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                MultiHopTopAction(
+                    enabled = multiHopEnabled,
+                    unlocked = multiHopUnlocked,
+                    onClick = onToggleMultiHop,
+                )
+                Spacer(Modifier.width(8.dp))
                 BrandLockup()
                 Spacer(Modifier.weight(1f))
                 if (userEmail != null) {
