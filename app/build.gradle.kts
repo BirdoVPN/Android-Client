@@ -90,6 +90,10 @@ android {
                 "proguard-rules.pro"
             )
             signingConfig = signingConfigs.getByName("release")
+            // Bundle native debug symbols (wg-go, xray) into the AAB for Play Console crash/ANR symbolication.
+            ndk {
+                debugSymbolLevel = "FULL"
+            }
         }
     }
 
