@@ -403,7 +403,6 @@ fun BirdoNavGraph(
                     val context = LocalContext.current
                     SettingsScreen(
                         state = settingsState,
-                        onKillSwitchChange = { settingsViewModel.setKillSwitch(it) },
                         onAutoConnectChange = { settingsViewModel.setAutoConnect(it) },
                         onNotificationsChange = { settingsViewModel.setNotifications(it) },
                         onShowIpInNotificationChange = { settingsViewModel.setShowIpInNotification(it) },
@@ -437,12 +436,6 @@ fun BirdoNavGraph(
                             vpnViewModel.fetchSubscription()
                             navController.navigate(Screen.Subscription.route)
                         },
-                        onOpenMultiHop = {
-                            navController.navigate(Screen.MultiHop.route)
-                        },
-                        onOpenPortForward = {
-                            navController.navigate(Screen.PortForward.route)
-                        },
                     )
                 }
             }
@@ -456,6 +449,7 @@ fun BirdoNavGraph(
                 AdaptiveContainer {
                     VpnSettingsScreen(
                         state = settingsState,
+                        onKillSwitchChange = { settingsViewModel.setKillSwitch(it) },
                         onLocalNetworkSharingChange = { settingsViewModel.setLocalNetworkSharing(it) },
                         onCustomDnsEnabledChange = { settingsViewModel.setCustomDnsEnabled(it) },
                         onCustomDnsPrimaryChange = { settingsViewModel.setCustomDnsPrimary(it) },
@@ -464,6 +458,7 @@ fun BirdoNavGraph(
                         onWireGuardMtuChange = { settingsViewModel.setWireGuardMtu(it) },
                         onStealthModeChange = { settingsViewModel.setStealthMode(it) },
                         onQuantumProtectionChange = { settingsViewModel.setQuantumProtection(it) },
+                        onOpenPortForward = { navController.navigate(Screen.PortForward.route) },
                         onBack = { navController.popBackStack() },
                     )
                 }

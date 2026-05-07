@@ -128,8 +128,9 @@ object RootDetector {
      */
     private fun checkDangerousProps(): Boolean {
         return try {
-            // ro.debuggable=1 is set on eng/userdebug builds
-            val process = Runtime.getRuntime().exec(arrayOf("getprop", "ro.debuggable"))
+            // Use absolute path to /system/bin/getprop to avoid PATH-based hijacking
+            // on rooted devices that may have placed a shim earlier in PATH.
+            val process = Runtime.getRuntime().exec(arrayOf("/system/bin/getprop", "ro.debuggable"))
             val result = process.inputStream.bufferedReader().readText().trim()
             process.waitFor()
             result == "1"

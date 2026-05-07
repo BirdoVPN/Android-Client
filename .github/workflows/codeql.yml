@@ -43,7 +43,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
-          queries: security-and-quality
+          config-file: ./.github/codeql/codeql-config.yml
 
       # Manual builds - CodeQL needs to observe the compiler.
       - name: Build Android (Kotlin)
