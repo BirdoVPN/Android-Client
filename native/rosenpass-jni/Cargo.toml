@@ -1,0 +1,59 @@
+[package]
+name = "rosenpass-jni"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "JNI bindings exposing the upstream Rosenpass post-quantum key exchange to the Birdo Android client."
+license = "Apache-2.0"
+
+[lib]
+name = "rosenpass_jni"
+crate-type = ["cdylib"]
+
+[dependencies]
+# JNI surface
+jni = { version = "0.21", default-features = false }
+
+# Logging into Android logcat from Rust
+log = "0.4"
+android_logger = "0.13"
+
+# Crypto primitives we need ourselves (HKDF, HMAC, hashing)
+sha2 = "0.10"
+hmac = "0.12"
+hkdf = "0.12"
+zeroize = { version = "1.7", features = ["zeroize_derive"] }
+
+# Wipe-on-drop key buffers
+secrecy = { version = "0.8", features = ["serde"] }
+
+# Random for ephemeral material (uses the OS CSPRNG via getrandom)
+rand_core = { version = "0.6", features = ["getrandom"] }
+getrandom = { version = "0.2", features = ["std"] }
+
+# Post-quantum primitives.
+# Pinned NIST PQC reference impls. These add ~6 MB / arch to the .so but are
+# the only auditable Rust impls of the exact KEMs the rosenpass spec requires.
+# - ML-KEM-512  (FIPS 203 / Kyber)              -> ephemeral key encapsulation
+# - Classic McEliece 460896  (NIST round 4)     -> long-lived key encapsulation
+pqcrypto-mlkem = "0.1"
+pqcrypto-classicmceliece = "0.2"
+pqcrypto-traits = "0.3"
+
+# Encoding for keys / handshake messages on the wire
+base64 = "0.22"
+
+[profile.release]
+# Aggressive size optimisation to keep the AAB under control.
+# Native libs ship inside split APKs per ABI so each device only downloads its arch.
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+overflow-checks = true
+
+[profile.release-with-debug]
+inherits = "release"
+strip = "none"
+debug = true

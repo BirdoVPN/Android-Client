@@ -141,6 +141,60 @@ tasks.withType<Test>().configureEach {
     ignoreFailures = true
 }
 
+// ── Rosenpass JNI native build ──────────────────────────────────────────────
+//
+// Cross-compiles `native/rosenpass-jni/` (Rust) for arm64-v8a, armeabi-v7a,
+// and x86_64 via cargo-ndk, depositing librosenpass_jni.so into
+// app/src/main/jniLibs/<abi>/ where AGP picks it up automatically.
+//
+// This task is NOT auto-wired into mergeReleaseNativeLibs — local debug builds
+// without Rust installed should still succeed (RosenpassNative gracefully
+// falls back when the .so is absent). CI invokes this task explicitly:
+//
+//     ./gradlew :app:buildRustLibs bundleRelease
+//
+// See native/README.md for one-time setup (rustup, cargo-ndk, NDK targets).
+val buildRustLibs = tasks.register<Exec>("buildRustLibs") {
+    group = "build"
+    description = "Cross-compiles the Rosenpass JNI Rust crate for all Android ABIs."
+
+    val nativeDir = rootProject.file("native")
+    workingDir = nativeDir
+
+    val isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows
+    if (isWindows) {
+        commandLine("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-File", "build.ps1", "-Profile", "release")
+    } else {
+        commandLine("bash", "build.sh", "release")
+    }
+
+    inputs.dir("$nativeDir/rosenpass-jni/src")
+    inputs.file("$nativeDir/rosenpass-jni/Cargo.toml")
+    outputs.files(
+        "${project.projectDir}/src/main/jniLibs/arm64-v8a/librosenpass_jni.so",
+        "${project.projectDir}/src/main/jniLibs/armeabi-v7a/librosenpass_jni.so",
+        "${project.projectDir}/src/main/jniLibs/x86_64/librosenpass_jni.so",
+    )
+
+    // Surface a clear diagnostic when Rust toolchain isn't installed locally,
+    // instead of dumping a raw "command not found" stack trace.
+    doFirst {
+        val cargoCheck = if (isWindows) {
+            ProcessBuilder("where", "cargo").redirectErrorStream(true).start()
+        } else {
+            ProcessBuilder("which", "cargo").redirectErrorStream(true).start()
+        }
+        if (cargoCheck.waitFor() != 0) {
+            throw GradleException(
+                "cargo not on PATH — install Rust + cargo-ndk + Android targets " +
+                "(see native/README.md). Or skip this task for local builds; " +
+                "RosenpassNative will fall back to the server-provided PSK path."
+            )
+        }
+    }
+}
+
 // Compute SHA-256 hashes of native .so libraries for runtime integrity verification.
 // The NativeLibraryVerifier reads these BuildConfig fields to validate binaries at load time.
 afterEvaluate {

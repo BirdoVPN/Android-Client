@@ -420,12 +420,39 @@ jobs:
           echo "::add-mask::$KEY_PASS"
           echo "RELEASE_KEY_PASSWORD=$KEY_PASS" >> "$GITHUB_ENV"
 
+      # ── Rosenpass JNI native module ────────────────────────────────────
+      # Cross-compiles native/rosenpass-jni/ for arm64-v8a, armeabi-v7a, x86_64.
+      # See native/ROADMAP.md for the milestone breakdown — M1 ships a
+      # foundation-only library; the handshake protocol body is gated to M2.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b # stable
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/rosenpass-jni/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('native/rosenpass-jni/Cargo.toml', 'native/rosenpass-jni/src/**') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Install cargo-ndk
+        run: cargo install --locked cargo-ndk@3.5.4
+
+      - name: Set ANDROID_NDK_HOME
+        run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+
       - name: Build Release AAB
         # RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD
         # are set as GITHUB_ENV by the Azure Key Vault step above.
+        # buildRustLibs runs cargo-ndk first to produce librosenpass_jni.so per ABI.
         run: |
           chmod +x ./gradlew
-          ./gradlew bundleRelease
+          ./gradlew :app:buildRustLibs bundleRelease
 
       - name: Clean up keystore
         if: always()
