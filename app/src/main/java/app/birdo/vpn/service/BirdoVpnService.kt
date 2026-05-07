@@ -547,7 +547,23 @@ class BirdoVpnService : VpnService() {
                 Log.i(TAG, "VPN connected — ${config.assignedIp ?: "?"} → ${effectiveConfig.endpoint}")
             }
             Log.i(TAG, "Kill switch: $isKillSwitchEnabled | Split tunnel: $isSplitTunnelingEnabled (${splitTunnelAppList.size} apps)")
-            Log.i(TAG, "Stealth: $stealthActive | Quantum: $quantumActive")
+            Log.i(TAG, "Stealth: $stealthActive | Quantum: $quantumActive (mode=${RosenpassManager.modeFlow.value})")
+
+            // ── Phase 4: Rosenpass rekey loop ────────────────────────
+            // When we ran a real bilateral PQ exchange, schedule periodic
+            // re-keys per the Rosenpass spec (~120 s). We CANNOT hot-swap
+            // the PSK on the live wg-go tunnel — wireguard-android doesn't
+            // expose wgSetConfig — so we just record the fresh PSK in
+            // RosenpassManager. The next reconnect picks it up. This is
+            // documented as a known M4 limitation in native/ROADMAP.md.
+            if (RosenpassManager.isBilateral()) {
+                RosenpassManager.startRekeyLoop(applicationContext, config) { freshPsk ->
+                    Log.i(TAG, "PQ rekey produced fresh PSK (${freshPsk.size}B) — will apply on next connect")
+                    // No live-tunnel PSK swap available on Android wireguard-go.
+                    // The new PSK is already stored in RosenpassManager.currentPsk
+                    // and will be picked up on the next BirdoVpnService.startTunnel().
+                }
+            }
 
             protectTunnelSockets(handle)
             startTunnelMonitor(handle)

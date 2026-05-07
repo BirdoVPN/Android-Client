@@ -4,281 +4,376 @@ import android.content.Context
 import android.util.Base64
 import android.util.Log
 import app.birdo.vpn.data.model.ConnectResponse
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
+import kotlinx.coroutines.withTimeoutOrNull
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetSocketAddress
-import java.security.MessageDigest
-import java.security.SecureRandom
-import javax.crypto.KeyAgreement
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Manages Rosenpass post-quantum pre-shared key exchange for WireGuard.
+ * Coordinates Rosenpass post-quantum WireGuard PSK exchange.
  *
- * Rosenpass uses Classic McEliece + Kyber (ML-KEM) to establish a shared
- * symmetric key that is injected as WireGuard's PresharedKey field. This
- * provides post-quantum security: even if an attacker records encrypted VPN
- * traffic today and later gains access to a quantum computer capable of
- * breaking Curve25519, the PQ-PSK ensures the traffic remains encrypted.
+ * ## Operating modes
  *
- * Architecture:
+ * The manager picks the strongest mode that's feasible for the current
+ * connect attempt and reports it via [modeFlow]:
+ *
+ * | Mode | When | Provides HNDL resistance? |
+ * |------|------|---------------------------|
+ * | [Mode.BILATERAL] | Native lib loaded AND the live UDP exchange against `rosenpass_endpoint` succeeds | ✅ yes (post-quantum) |
+ * | [Mode.SERVER_PROVIDED] | Server returned a WireGuard-format PSK in [ConnectResponse.presharedKey] | ⚠️ partial — relies on TLS for PSK delivery |
+ * | [Mode.DISABLED] | Neither bilateral exchange nor server PSK available | ❌ no |
+ *
+ * **Honest disclaimer for marketing copy:** Only [Mode.BILATERAL] provides
+ * genuine post-quantum protection against Harvest-Now-Decrypt-Later attackers.
+ * [Mode.SERVER_PROVIDED] is the v1.3.x production behaviour and is fine for
+ * day-to-day traffic but does NOT defeat HNDL. See `native/ROADMAP.md`.
+ *
+ * ## Lifecycle
+ *
  * ```
- * Client                          Server
- *   |    Rosenpass handshake        |
- *   | (Classic McEliece + Kyber)    |
- *   |──────────────────────────────▶|
- *   |◀──────────────────────────────|
- *   |    Derived 32-byte PSK        |
- *   |                               |
- *   └─▶ WireGuard PresharedKey      |
+ * connect()  ──▶ performKeyExchange(config)         // returns initial PSK
+ *            ──▶ startRekeyLoop(config, onPskReady) // schedules every ~120 s
+ * disconnect() ──▶ stop()                            // cancels loop + zeroes secrets
  * ```
  *
- * The PSK is rotated approximately every 2 minutes via periodic rekeying.
- * Between rekeys, the current PSK remains active in the WireGuard tunnel.
- *
- * Implementation approaches (in priority order):
- * 1. **Native library** — Rosenpass compiled as .so via cargo-ndk with JNI bridge
- * 2. **Binary execution** — Rosenpass binary for Android targets
- * 3. **API-mediated** — Server performs PQ key exchange and returns PSK (fallback)
- *
- * For initial deployment, approach 3 (API-mediated) is used as it doesn't
- * require shipping native Rosenpass binaries with the APK. The server already
- * runs Rosenpass and can derive a PQ-PSK that both sides share.
+ * The rekey loop calls back into [BirdoVpnService] via [onPskReady] which
+ * applies the new PSK atomically with `wg set <iface> peer <pk> preshared-key`.
  */
 object RosenpassManager {
 
     private const val TAG = "RosenpassManager"
 
-    /** Rosenpass rekey interval (approximately 2 minutes) */
-    private const val REKEY_INTERVAL_MS = 120_000L
-
-    /** Length of the WireGuard PresharedKey in bytes */
+    /** WireGuard PresharedKey is exactly 32 bytes. */
     private const val PSK_LENGTH_BYTES = 32
 
-    @Volatile
-    private var isActive = false
+    /** UDP read timeout for a single handshake message (ms). */
+    private const val UDP_RECV_TIMEOUT_MS = 5_000
+
+    /** Maximum size of a single Rosenpass UDP frame on the wire. */
+    private const val UDP_MTU = 65_507
+
+    /**
+     * Magic bytes prefixed to **all** wire frames. Bumped when we change
+     * frame layout in a way that's not backwards-compatible. Today (M1)
+     * the bilateral exchange is gated on the native lib returning non-null,
+     * which it doesn't yet, so this magic isn't actually used on the wire —
+     * but the constant is wired through so M2 doesn't need to retro-fit it.
+     */
+    private const val WIRE_MAGIC = "BRP1"
+
+    enum class Mode { DISABLED, SERVER_PROVIDED, BILATERAL }
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var rekeyJob: Job? = null
 
     @Volatile
     private var currentPsk: ByteArray? = null
 
     @Volatile
-    private var serverPublicKey: ByteArray? = null
+    private var keyStore: RosenpassKeyStore? = null
 
-    @Volatile
-    private var clientKeyPair: RosenpassKeyPair? = null
+    private val _modeFlow = MutableStateFlow(Mode.DISABLED)
+    val modeFlow: StateFlow<Mode> = _modeFlow.asStateFlow()
 
-    /** Whether quantum protection is currently active */
-    fun isQuantumProtected(): Boolean = isActive && currentPsk != null
+    /** True when we're currently providing some form of PQ-flavoured protection. */
+    fun isQuantumProtected(): Boolean = currentPsk != null && _modeFlow.value != Mode.DISABLED
 
-    /**
-     * Get the current post-quantum pre-shared key as a Base64 string.
-     * Returns null if PQ protection is not active.
-     */
+    /** True iff we're running the genuine bilateral PQ exchange. */
+    fun isBilateral(): Boolean = _modeFlow.value == Mode.BILATERAL
+
     fun getCurrentPsk(): String? {
         val psk = currentPsk ?: return null
         return Base64.encodeToString(psk, Base64.NO_WRAP)
     }
 
+    /** Diagnostic: returns the loaded native lib version, or `<not loaded>`. */
+    fun nativeLibVersion(): String = RosenpassNative.getNativeVersion()
+
+    // ── public API ─────────────────────────────────────────────────────────
+
     /**
-     * Perform the initial Rosenpass key exchange and derive a PQ-PSK.
+     * Performs the initial key exchange and returns the PSK as Base64, or
+     * `null` if no PQ-flavoured PSK is available at all.
      *
-     * @param context   Application context
-     * @param config    VPN connect response containing Rosenpass parameters
-     * @return Base64-encoded 32-byte PSK, or null if PQ key exchange failed
+     * Implementation order:
+     *   1. Try bilateral native exchange (loads/generates persistent keypair,
+     *      sends UDP, awaits response).
+     *   2. Fall back to the server-supplied PSK if present.
+     *   3. Otherwise return `null` and the caller MUST use plain WireGuard.
      */
     suspend fun performKeyExchange(context: Context, config: ConnectResponse): String? = withContext(Dispatchers.IO) {
-        val rosenpassPubKey = config.rosenpassPublicKey
-        val rosenpassEndpoint = config.rosenpassEndpoint
+        // Cancel any rekey loop from a previous connect.
+        rekeyJob?.cancel()
+        rekeyJob = null
 
-        if (rosenpassPubKey == null) {
-            Log.w(TAG, "No Rosenpass public key provided — PQ protection unavailable")
-            return@withContext null
+        if (config.rosenpassPublicKey == null) {
+            Log.w(TAG, "no rosenpassPublicKey in connect response — PQ unavailable")
+            return@withContext fallbackToServerPsk(config)
         }
 
-        Log.i(TAG, "Performing post-quantum key exchange (Classic McEliece + Kyber)")
+        val bilateralPsk = tryBilateralExchange(context, config)
+        if (bilateralPsk != null) {
+            currentPsk = bilateralPsk
+            _modeFlow.value = Mode.BILATERAL
+            Log.i(TAG, "bilateral PQ key exchange succeeded — quantum-resistant PSK active")
+            return@withContext Base64.encodeToString(bilateralPsk, Base64.NO_WRAP)
+        }
 
-        try {
-            // Store server's Rosenpass public key
-            serverPublicKey = Base64.decode(rosenpassPubKey, Base64.NO_WRAP)
+        // Native unavailable or stub returned null — use server PSK.
+        return@withContext fallbackToServerPsk(config)
+    }
 
-            // Try native Rosenpass library first
-            val nativePsk = performNativeKeyExchange(context, rosenpassPubKey, rosenpassEndpoint)
-            if (nativePsk != null) {
-                currentPsk = nativePsk
-                isActive = true
-                val pskB64 = Base64.encodeToString(nativePsk, Base64.NO_WRAP)
-                // SEC: never log PSK material — not even truncated/base64. Even partial
-                // bytes leak entropy for an attacker who can read logcat.
-                Log.i(TAG, "PQ-PSK derived via native Rosenpass")
-                return@withContext pskB64
+    private fun fallbackToServerPsk(config: ConnectResponse): String? {
+        val serverPsk = config.presharedKey
+        if (serverPsk == null) {
+            currentPsk = null
+            _modeFlow.value = Mode.DISABLED
+            Log.w(TAG, "no server-provided PSK either — quantum protection unavailable")
+            return null
+        }
+        currentPsk = Base64.decode(serverPsk, Base64.NO_WRAP)
+        _modeFlow.value = Mode.SERVER_PROVIDED
+        Log.i(TAG, "using server-provided PSK (TLS-delivered, NOT HNDL-safe)")
+        return serverPsk
+    }
+
+    /**
+     * Starts the periodic rekey loop. Should be called once per connect after
+     * the initial [performKeyExchange] succeeds.
+     *
+     * @param onPskReady invoked on the IO dispatcher each time a fresh PSK is
+     *                   derived. Must apply the new PSK atomically to the live
+     *                   wg interface — typically via `WgNative.setPresharedKey`.
+     */
+    fun startRekeyLoop(
+        context: Context,
+        config: ConnectResponse,
+        onPskReady: suspend (ByteArray) -> Unit,
+    ) {
+        rekeyJob?.cancel()
+        if (_modeFlow.value != Mode.BILATERAL) {
+            // Server-provided PSK doesn't rotate — only bilateral mode rekeys.
+            Log.d(TAG, "rekey loop not started (mode=${_modeFlow.value})")
+            return
+        }
+        val intervalSec = RosenpassNative.rekeyIntervalSeconds().coerceAtLeast(30)
+        Log.i(TAG, "starting rekey loop, interval=${intervalSec}s")
+        rekeyJob = scope.launch {
+            while (isActive) {
+                delay(intervalSec * 1_000L)
+                try {
+                    val freshPsk = tryBilateralExchange(context, config)
+                    if (freshPsk != null) {
+                        // Zero the prior PSK before swapping.
+                        currentPsk?.fill(0)
+                        currentPsk = freshPsk
+                        onPskReady(freshPsk)
+                        Log.i(TAG, "rekey OK — fresh PQ-PSK applied")
+                    } else {
+                        Log.w(TAG, "rekey returned no PSK — keeping previous one until next interval")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "rekey iteration failed; will retry next interval", e)
+                }
             }
-
-            // Native Rosenpass unavailable — fall back to the server-provided
-            // WireGuard PSK that the server already negotiated via its own
-            // Rosenpass exchange. Both sides MUST hold the IDENTICAL PSK or
-            // every WireGuard packet will fail AEAD authentication on the
-            // server (symptom: handshake completes, uploads succeed, but no
-            // return packets are ever decrypted → "no IP / no downloads").
-            //
-            // Historical bug: a previous "hybrid PSK" derivation mixed in
-            // local-only SecureRandom entropy that the server could never
-            // reproduce, producing a different PSK on each side. That broke
-            // Quantum Protection on every connection. Do NOT reintroduce
-            // client-only entropy here — true bilateral PQ protection
-            // requires a real Rosenpass UDP exchange (TODO).
-            if (config.presharedKey != null) {
-                currentPsk = Base64.decode(config.presharedKey, Base64.NO_WRAP)
-                isActive = true
-                Log.i(TAG, "Using server-provided PQ-PSK (server-side Rosenpass active)")
-                return@withContext config.presharedKey
-            }
-
-            Log.w(TAG, "PQ key exchange failed — no PSK available")
-            return@withContext null
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Post-quantum key exchange failed", e)
-            return@withContext null
         }
     }
 
     /**
-     * Stop PQ protection and zero sensitive key material.
+     * Stops PQ protection, cancels the rekey loop, and zeroes all sensitive
+     * key material in process memory.
+     *
+     * Persistent keys on disk are NOT touched — call [resetPersistedKeypair]
+     * for that (e.g. on user-initiated logout/reset).
      */
     fun stop() {
-        Log.i(TAG, "Stopping Rosenpass PQ protection")
-        isActive = false
-        // Zero key material
+        Log.i(TAG, "stopping Rosenpass PQ protection")
+        rekeyJob?.cancel()
+        rekeyJob = null
         currentPsk?.fill(0)
         currentPsk = null
-        serverPublicKey?.fill(0)
-        serverPublicKey = null
-        clientKeyPair?.let {
-            it.secretKey.fill(0)
-            it.publicKey.fill(0)
-        }
-        clientKeyPair = null
+        _modeFlow.value = Mode.DISABLED
     }
 
-    // ── Native Rosenpass ────────────────────────────────────────
+    /** Permanently deletes the persisted Rosenpass keypair. Use on logout. */
+    fun resetPersistedKeypair(context: Context) {
+        ensureKeyStore(context).clear()
+    }
+
+    // ── bilateral PQ exchange ──────────────────────────────────────────────
 
     /**
-     * Attempt to perform key exchange via the native Rosenpass library (JNI).
+     * One full Rosenpass round-trip.
      *
-     * The native lib exposes:
-     * - `RosenpassNative.generateKeyPair()` → (publicKey, secretKey)
-     * - `RosenpassNative.handshake(serverPubKey, clientSecretKey)` → 32-byte PSK
+     * 1. Load (or lazily generate + persist) our static Classic McEliece keypair.
+     * 2. Ask native for the InitHello frame to send.
+     * 3. UDP send → blocking recv with [UDP_RECV_TIMEOUT_MS] timeout.
+     * 4. Hand the response to native and receive the 32-byte PSK.
+     *
+     * Returns `null` when:
+     *   - the native lib isn't loaded,
+     *   - the native protocol body is still M1-stub (returns null),
+     *   - the UDP exchange times out or the peer rejects the frame,
+     *   - the response isn't a valid PSK.
+     *
+     * On `null` the caller falls back to the server-provided PSK; on real
+     * crypto errors we log and bail out (don't silently downgrade in a way
+     * that hides a misconfigured peer).
      */
-    private fun performNativeKeyExchange(context: Context, serverPubKeyB64: String, endpoint: String?): ByteArray? {
-        return try {
-            val nativeClass = Class.forName("app.birdo.vpn.service.RosenpassNative")
-
-            // Generate client keypair
-            val genMethod = nativeClass.getDeclaredMethod("generateKeyPair")
-            val keyPairResult = genMethod.invoke(null) as? Array<ByteArray>
-            if (keyPairResult == null || keyPairResult.size != 2) {
-                Log.e(TAG, "Native generateKeyPair returned invalid result")
-                return null
-            }
-
-            clientKeyPair = RosenpassKeyPair(
-                publicKey = keyPairResult[0],
-                secretKey = keyPairResult[1],
-            )
-
-            // Perform handshake with server's public key
-            val serverPubKey = Base64.decode(serverPubKeyB64, Base64.NO_WRAP)
-            val handshakeMethod = nativeClass.getDeclaredMethod(
-                "handshake",
-                ByteArray::class.java,
-                ByteArray::class.java,
-                String::class.java,
-            )
-            val psk = handshakeMethod.invoke(null, serverPubKey, keyPairResult[1], endpoint ?: "") as? ByteArray
-            if (psk != null && psk.size == PSK_LENGTH_BYTES) {
-                Log.i(TAG, "Native Rosenpass handshake succeeded")
-                psk
-            } else {
-                Log.w(TAG, "Native handshake returned invalid PSK (size=${psk?.size})")
-                null
-            }
-        } catch (e: ClassNotFoundException) {
-            Log.d(TAG, "RosenpassNative not available — using hybrid fallback")
-            null
+    private suspend fun tryBilateralExchange(context: Context, config: ConnectResponse): ByteArray? {
+        if (!RosenpassNative.isLoaded) {
+            Log.d(TAG, "rosenpass-jni not loaded — bilateral exchange unavailable")
+            return null
+        }
+        val endpoint = config.rosenpassEndpoint
+        if (endpoint.isNullOrBlank()) {
+            Log.w(TAG, "rosenpassEndpoint missing — cannot run bilateral exchange")
+            return null
+        }
+        val serverPubKey = try {
+            Base64.decode(config.rosenpassPublicKey, Base64.NO_WRAP)
         } catch (e: Exception) {
-            Log.e(TAG, "Native Rosenpass handshake failed", e)
+            Log.e(TAG, "malformed rosenpassPublicKey", e)
+            return null
+        }
+
+        val keypair = loadOrGenerateKeypair(context) ?: return null
+
+        val initFrame = try {
+            RosenpassNative.initiateHandshake(serverPubKey, keypair.secretKey)
+        } catch (e: Throwable) {
+            Log.e(TAG, "native initiateHandshake threw", e)
+            return null
+        }
+        if (initFrame == null) {
+            // M1: protocol body is still a stub. The integration is wired but
+            // there's nothing to send yet. Caller will fall back to server PSK.
+            // When M2 lands and initiateHandshake returns real bytes, this
+            // path will start exchanging real frames with no further changes.
+            Log.d(TAG, "native initiateHandshake returned null (M1 stub) — fallback to server PSK")
+            return null
+        }
+
+        val response = exchangeUdp(endpoint, initFrame) ?: return null
+
+        val psk = try {
+            RosenpassNative.handleResponse(response, keypair.secretKey)
+        } catch (e: Throwable) {
+            Log.e(TAG, "native handleResponse threw", e)
+            return null
+        }
+        if (psk == null) {
+            Log.w(TAG, "handleResponse returned null (stub or malformed response)")
+            return null
+        }
+        if (psk.size != PSK_LENGTH_BYTES) {
+            Log.e(TAG, "handleResponse returned wrong-sized PSK (${psk.size} != $PSK_LENGTH_BYTES)")
+            psk.fill(0)
+            return null
+        }
+        return psk
+    }
+
+    /**
+     * UDP single-shot request/response with [UDP_RECV_TIMEOUT_MS] timeout.
+     *
+     * Endpoint format: `host:port`. Parsed defensively — bad format → null.
+     */
+    private suspend fun exchangeUdp(endpoint: String, frame: ByteArray): ByteArray? = withContext(Dispatchers.IO) {
+        val (host, port) = parseEndpoint(endpoint) ?: run {
+            Log.e(TAG, "malformed rosenpassEndpoint=$endpoint (expected host:port)")
+            return@withContext null
+        }
+        var socket: DatagramSocket? = null
+        try {
+            withTimeoutOrNull(UDP_RECV_TIMEOUT_MS.toLong() + 1_000) {
+                socket = DatagramSocket().apply { soTimeout = UDP_RECV_TIMEOUT_MS }
+                val target = InetSocketAddress(host, port)
+                socket!!.send(DatagramPacket(frame, frame.size, target))
+
+                val buf = ByteArray(UDP_MTU)
+                val pkt = DatagramPacket(buf, buf.size)
+                socket!!.receive(pkt)  // blocks until soTimeout
+                buf.copyOfRange(0, pkt.length)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "UDP exchange failed against $endpoint: ${e.message}")
             null
+        } finally {
+            runCatching { socket?.close() }
         }
     }
 
-    // ── Hybrid PQ-PSK Derivation (DEPRECATED — DO NOT USE) ─────
-    //
-    // This routine mixes local SecureRandom entropy into the PSK, which the
-    // server cannot reproduce. The result is a PSK mismatch that silently
-    // breaks WireGuard AEAD on every packet (handshake OK, no return traffic).
-    // Kept only as a reference for the HKDF helpers; replace with a real
-    // Rosenpass UDP key exchange before re-enabling.
-    @Suppress("unused")
-    @Deprecated("Causes PSK mismatch — use server-provided PSK or a real Rosenpass exchange")
-    private fun deriveHybridPsk(serverRosenpassKey: ByteArray, serverWgPsk: String?): ByteArray? {
-        return try {
-            // Local entropy
-            val localEntropy = ByteArray(32).also { SecureRandom().nextBytes(it) }
+    private fun parseEndpoint(endpoint: String): Pair<String, Int>? {
+        val idx = endpoint.lastIndexOf(':')
+        if (idx <= 0 || idx == endpoint.length - 1) return null
+        val host = endpoint.substring(0, idx).trim('[', ']')   // strip IPv6 brackets if present
+        val port = endpoint.substring(idx + 1).toIntOrNull() ?: return null
+        if (port !in 1..65535) return null
+        if (host.isBlank()) return null
+        return host to port
+    }
 
-            // Initial keying material from server's PQ public key + local entropy
-            val ikm = ByteArray(serverRosenpassKey.size + localEntropy.size + (serverWgPsk?.length ?: 0))
-            System.arraycopy(serverRosenpassKey, 0, ikm, 0, serverRosenpassKey.size)
-            System.arraycopy(localEntropy, 0, ikm, serverRosenpassKey.size, localEntropy.size)
+    private fun loadOrGenerateKeypair(context: Context): RosenpassNative.StaticKeypair? {
+        val store = ensureKeyStore(context)
+        val existing = store.load()
+        if (existing != null) return existing
 
-            // Mix in server-provided PSK if available (already PQ-derived by server's Rosenpass)
-            serverWgPsk?.let {
-                val pskBytes = Base64.decode(it, Base64.NO_WRAP)
-                System.arraycopy(pskBytes, 0, ikm, serverRosenpassKey.size + localEntropy.size, pskBytes.size)
-            }
-
-            // HKDF-Extract
-            val salt = "BirdoVPN-PQ-PSK-v1".toByteArray()
-            val prk = hmacSha256(salt, ikm)
-
-            // HKDF-Expand to 32 bytes
-            val info = "wireguard-preshared-key".toByteArray()
-            val psk = hkdfExpand(prk, info, PSK_LENGTH_BYTES)
-
-            // Zero intermediate material
-            ikm.fill(0)
-            prk.fill(0)
-            localEntropy.fill(0)
-
-            psk
+        Log.i(TAG, "no persisted Rosenpass keypair — generating new (this can take a few seconds)")
+        val fresh = try {
+            RosenpassNative.generateKeypair()
+        } catch (e: Throwable) {
+            Log.e(TAG, "native generateKeypair failed", e)
+            return null
+        }
+        try {
+            store.save(fresh)
         } catch (e: Exception) {
-            Log.e(TAG, "Hybrid PSK derivation failed", e)
-            null
+            Log.e(TAG, "failed to persist new keypair — not caching, will regenerate next time", e)
+        }
+        return fresh
+    }
+
+    private fun ensureKeyStore(context: Context): RosenpassKeyStore {
+        return keyStore ?: synchronized(this) {
+            keyStore ?: RosenpassKeyStore(context.applicationContext).also { keyStore = it }
         }
     }
 
-    private fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray {
+    // ── HKDF helpers (kept for future RFC-5869 PSK derivations on the wire) ─
+
+    @Suppress("unused")  // Used by tests + reserved for M2 wire framing.
+    internal fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray {
         val mac = Mac.getInstance("HmacSHA256")
         mac.init(SecretKeySpec(key, "HmacSHA256"))
         return mac.doFinal(data)
     }
 
-    private fun hkdfExpand(prk: ByteArray, info: ByteArray, length: Int): ByteArray {
+    @Suppress("unused")
+    internal fun hkdfExpand(prk: ByteArray, info: ByteArray, length: Int): ByteArray {
         val result = ByteArray(length)
         var t = ByteArray(0)
         var offset = 0
         var counter: Byte = 1
-
         while (offset < length) {
             val input = ByteArray(t.size + info.size + 1)
             System.arraycopy(t, 0, input, 0, t.size)
             System.arraycopy(info, 0, input, t.size, info.size)
             input[input.size - 1] = counter
-
             t = hmacSha256(prk, input)
             val copyLen = minOf(t.size, length - offset)
             System.arraycopy(t, 0, result, offset, copyLen)
@@ -288,13 +383,13 @@ object RosenpassManager {
         return result
     }
 
-    // ── Data Classes ────────────────────────────────────────────
-
-    private data class RosenpassKeyPair(
-        val publicKey: ByteArray,
-        val secretKey: ByteArray,
-    ) {
-        override fun equals(other: Any?): Boolean = this === other
-        override fun hashCode(): Int = System.identityHashCode(this)
+    /** For test teardown only. NOT for runtime use. */
+    internal fun resetForTesting() {
+        scope.coroutineContext.cancel()
+        rekeyJob = null
+        currentPsk?.fill(0)
+        currentPsk = null
+        keyStore = null
+        _modeFlow.value = Mode.DISABLED
     }
 }

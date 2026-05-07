@@ -101,4 +101,53 @@ object RosenpassNative {
     /** Convenience accessor that returns the version, or a placeholder when the lib isn't loaded. */
     fun getNativeVersion(): String =
         if (isLoaded) runCatching { nativeVersion() }.getOrDefault("<error>") else "<not loaded>"
+
+    // ── Idiomatic Kotlin wrappers ──────────────────────────────────────────
+
+    /**
+     * Long-lived Classic McEliece keypair. The secret key half is sensitive
+     * material — callers MUST persist via [RosenpassKeyStore] (Keystore-wrapped
+     * EncryptedFile) and zeroize the in-memory copy as soon as it's been
+     * handed to the native handshake function.
+     */
+    data class StaticKeypair(val publicKey: ByteArray, val secretKey: ByteArray) {
+        // ByteArray uses identity equality by default; data classes need explicit overrides.
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is StaticKeypair) return false
+            return publicKey.contentEquals(other.publicKey) &&
+                    secretKey.contentEquals(other.secretKey)
+        }
+        override fun hashCode(): Int =
+            31 * publicKey.contentHashCode() + secretKey.contentHashCode()
+    }
+
+    /**
+     * Typed wrapper around [nativeGenerateKeypair].
+     *
+     * @throws IllegalStateException if the native lib is not loaded.
+     * @throws RuntimeException if the underlying KEM call fails.
+     */
+    fun generateKeypair(): StaticKeypair {
+        check(isLoaded) { "rosenpass-jni not loaded" }
+        val raw = nativeGenerateKeypair()
+        require(raw.size == 2) { "nativeGenerateKeypair returned ${raw.size} elements, expected 2" }
+        return StaticKeypair(publicKey = raw[0], secretKey = raw[1])
+    }
+
+    /** Typed wrapper around [nativeInitiateHandshake]. Returns null when the protocol body is M1-stub. */
+    fun initiateHandshake(peerStaticPublicKey: ByteArray, clientSecretKey: ByteArray): ByteArray? {
+        if (!isLoaded) return null
+        return nativeInitiateHandshake(peerStaticPublicKey, clientSecretKey)
+    }
+
+    /** Typed wrapper around [nativeHandleResponse]. Returns null when the protocol body is M1-stub. */
+    fun handleResponse(responseMessage: ByteArray, clientSecretKey: ByteArray): ByteArray? {
+        if (!isLoaded) return null
+        return nativeHandleResponse(responseMessage, clientSecretKey)
+    }
+
+    /** Recommended re-key interval in seconds. Falls back to spec default (120) when lib isn't loaded. */
+    fun rekeyIntervalSeconds(): Int =
+        if (isLoaded) runCatching { nativeRekeyIntervalSeconds() }.getOrDefault(120) else 120
 }
