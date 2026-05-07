@@ -65,6 +65,7 @@ internal class VpnNotificationManager(private val context: Context) {
         txBytes: Long = 0L,
     ): Notification {
         val openIntent = Intent(context, MainActivity::class.java).apply {
+            setPackage(context.packageName)
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val pendingOpen = PendingIntent.getActivity(
@@ -73,10 +74,14 @@ internal class VpnNotificationManager(private val context: Context) {
         )
         val stopPendingIntent = PendingIntent.getService(
             context, 1,
-            Intent(context, BirdoVpnService::class.java).apply { action = BirdoVpnService.ACTION_STOP },
+            Intent(context, BirdoVpnService::class.java).apply {
+                setPackage(context.packageName)
+                action = BirdoVpnService.ACTION_STOP
+            },
             PendingIntent.FLAG_IMMUTABLE,
         )
         val connectIntent = Intent(context, MainActivity::class.java).apply {
+            setPackage(context.packageName)
             action = Intent.ACTION_VIEW
             data = android.net.Uri.parse("birdo://connect")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -172,6 +177,7 @@ internal class VpnNotificationManager(private val context: Context) {
     fun postDisconnectedNotification() {
         try {
             val openIntent = Intent(context, MainActivity::class.java).apply {
+                setPackage(context.packageName)
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
             }
             val pendingOpen = PendingIntent.getActivity(
@@ -179,6 +185,7 @@ internal class VpnNotificationManager(private val context: Context) {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
             val connectIntent = Intent(context, MainActivity::class.java).apply {
+                setPackage(context.packageName)
                 action = Intent.ACTION_VIEW
                 data = android.net.Uri.parse("birdo://connect")
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
