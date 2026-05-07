@@ -190,6 +190,14 @@ data class ConnectRequest(
     val clientPublicKey: String? = null,
     val stealthMode: Boolean = false,
     val quantumProtection: Boolean = false,
+    /**
+     * Base64 ML-KEM-1024 public key for BirdoPQ v1 PSK derivation.
+     * When present, the server encapsulates a fresh shared secret against
+     * this key and returns the resulting ciphertext in
+     * `ConnectResponse.rosenpassPublicKey`. ~2.1 KB Base64 overhead per
+     * connect — see `app/src/main/java/app/birdo/vpn/service/RosenpassManager.kt`.
+     */
+    val pqClientPublicKey: String? = null,
 )
 
 @Serializable
@@ -226,7 +234,25 @@ data class ConnectResponse(
     val xrayShortId: String? = null,
     val xraySni: String? = null,
     val xrayFlow: String? = null,
-    // Quantum Protection (Rosenpass PQ-PSK)
+    // Quantum Protection — BirdoPQ v1 (ML-KEM-1024 PSK derivation).
+    //
+    // The two `rosenpass*` fields below are RE-USED for BirdoPQ v1 to avoid a
+    // breaking schema change. Their semantics changed in client v0.2.0:
+    //
+    //   `rosenpassPublicKey` — Base64 ML-KEM-1024 ciphertext (1568 B).
+    //                          The server encapsulates against the client's
+    //                          ML-KEM public key (uploaded in ConnectRequest)
+    //                          and returns the resulting ciphertext here.
+    //                          The client decapsulates with its persisted
+    //                          secret key to recover the shared secret.
+    //
+    //   `rosenpassEndpoint`  — Base64 per-connect nonce mixed into HKDF so
+    //                          each session derives a distinct PSK from the
+    //                          same KEM output. Server may use a timestamp,
+    //                          random bytes, or any opaque value.
+    //
+    // See `app/src/main/java/app/birdo/vpn/service/RosenpassManager.kt` and
+    // `native/rosenpass-jni/src/lib.rs` for the canonical protocol spec.
     val quantumEnabled: Boolean = false,
     val rosenpassPublicKey: String? = null,
     val rosenpassEndpoint: String? = null,

@@ -3,12 +3,12 @@ package app.birdo.vpn.service
 import android.util.Log
 
 /**
- * JNI bridge to `librosenpass_jni.so`.
+ * JNI bridge to `librosenpass_jni.so` — BirdoPQ v1 (ML-KEM-1024).
  *
- * This is the **only** Kotlin call site that talks to the native Rosenpass
- * code. [RosenpassManager] uses it via reflection in M1 so the app keeps
- * loading even on devices/builds where the .so is absent (e.g. local debug
- * builds without Rust toolchain installed).
+ * This is the **only** Kotlin call site that talks to the native PQ KEM
+ * code. [RosenpassManager] uses it via reflection so the app keeps loading
+ * even on devices/builds where the .so is absent (e.g. local debug builds
+ * without the Rust toolchain installed).
  *
  * ## ABI contract
  *
@@ -19,23 +19,33 @@ import android.util.Log
  *
  * ## Threading
  *
- * All native methods are CPU-heavy (Classic McEliece keypair generation is
- * ~hundreds of ms on a phone) and MUST be called off the main thread.
+ * `nativeGenerateKeypair` is the only CPU-heavy call (~10–50 ms on a phone
+ * for ML-KEM-1024). All native methods MUST be called off the main thread —
  * [RosenpassManager] dispatches them on `Dispatchers.IO`.
+ *
+ * ## Why not upstream Rosenpass?
+ *
+ * See `native/rosenpass-jni/src/lib.rs` module docs. tl;dr libsodium can't
+ * be cross-compiled to Android without weeks of build infra work, and we
+ * get the same HNDL guarantee from a much simpler ML-KEM-only construction.
  */
 object RosenpassNative {
 
     private const val TAG = "RosenpassNative"
     private const val LIB_NAME = "rosenpass_jni"
 
-    /**
-     * `true` when the native library was loaded successfully.
-     *
-     * On release builds with the Rust .so packaged this is always `true`.
-     * On dev builds without `cargo ndk` having been run, this is `false`
-     * and all `external` methods will throw [UnsatisfiedLinkError] —
-     * [RosenpassManager] checks this flag before invoking any of them.
-     */
+    /** ML-KEM-1024 public key length (FIPS 203). */
+    const val PUBLIC_KEY_BYTES = 1568
+
+    /** ML-KEM-1024 secret key length (FIPS 203). */
+    const val SECRET_KEY_BYTES = 3168
+
+    /** ML-KEM-1024 ciphertext length (FIPS 203). */
+    const val CIPHERTEXT_BYTES = 1568
+
+    /** WireGuard PresharedKey length. */
+    const val PSK_BYTES = 32
+
     @Volatile
     var isLoaded: Boolean = false
         private set
@@ -49,69 +59,77 @@ object RosenpassNative {
             isLoaded = false
             Log.w(TAG, "native lib $LIB_NAME not present — falling back to server-provided PSK path", e)
         } catch (t: Throwable) {
-            // Any other failure (SecurityException, etc.) — fail safe.
             isLoaded = false
             Log.e(TAG, "unexpected failure loading $LIB_NAME", t)
         }
     }
 
-    /** Returns the version string of the loaded native library, e.g. `"rosenpass-jni 0.1.0 (aarch64, release)"`. */
+    /** Returns the native lib version string, e.g. `"rosenpass-jni 0.2.0 (BirdoPQ v1, ML-KEM-1024, aarch64, release)"`. */
     @JvmStatic
     external fun nativeVersion(): String
 
     /**
-     * Generates a long-lived Classic McEliece 460896 keypair.
+     * Generates a long-lived ML-KEM-1024 keypair.
      *
-     * @return a 2-element array: `[publicKey, secretKey]`. Public key ≈ 524 KB,
-     *         secret key ≈ 13 KB. Caller MUST persist via [RosenpassManager.persistKeypair]
-     *         and zeroize the secret key after writing to encrypted storage.
-     * @throws RuntimeException if the native KEM call fails.
+     * @return 2-element array `[publicKey (~1568 B), secretKey (~3168 B)]`.
+     *         Caller MUST persist via [RosenpassKeyStore] (Keystore-wrapped
+     *         EncryptedFile) and zeroize the in-memory secret key copy after
+     *         writing it to encrypted storage.
+     * @throws RuntimeException if the underlying KEM call fails.
      */
     @JvmStatic
     external fun nativeGenerateKeypair(): Array<ByteArray>
 
     /**
-     * Builds the Rosenpass `InitHello` UDP frame to send to the node.
+     * Decapsulates the server-supplied ML-KEM ciphertext and derives the
+     * 32-byte WireGuard PSK via HKDF-SHA-256 mixed with the per-connect nonce.
      *
-     * @return `null` if the protocol body is not yet implemented (M1 stub),
-     *         otherwise the on-wire bytes to send to the peer's `rosenpass_endpoint`.
+     * @param clientSecretKey the long-lived ML-KEM-1024 sk (3168 B).
+     * @param serverCiphertext the bytes from `ConnectResponse.rosenpassPublicKey`
+     *                         (semantically repurposed — see Rust module doc).
+     * @param serverNonce      the bytes from `ConnectResponse.rosenpassEndpoint`
+     *                         (also repurposed). Mixed into HKDF so each
+     *                         connect derives a fresh PSK.
+     * @return 32-byte PSK on success, `null` on any malformed input.
      */
     @JvmStatic
-    external fun nativeInitiateHandshake(
-        peerStaticPublicKey: ByteArray,
+    external fun nativeDeriveSharedPsk(
         clientSecretKey: ByteArray,
+        serverCiphertext: ByteArray,
+        serverNonce: ByteArray,
     ): ByteArray?
 
     /**
-     * Processes the peer's `RespHello` reply and derives the 32-byte WireGuard PSK.
+     * Server-side encapsulation, exposed via JNI ONLY for unit-test use that
+     * exercises the full client↔server roundtrip in-process.
      *
-     * @return the 32-byte PSK on success, `null` on stub-fallback (M1) or
-     *         malformed/unauthenticated response.
+     * Production server-side encapsulation runs in `native/birdo-pq-server/`
+     * (a separate binary) and never touches this surface.
+     *
+     * @return 2-element array `[ciphertext (~1568 B), psk (32 B)]`.
      */
     @JvmStatic
-    external fun nativeHandleResponse(
-        responseMessage: ByteArray,
-        clientSecretKey: ByteArray,
-    ): ByteArray?
+    external fun nativeEncapsulateForServer(
+        clientPublicKey: ByteArray,
+        serverNonce: ByteArray,
+    ): Array<ByteArray>
 
-    /** Recommended re-key interval in seconds (per Rosenpass spec §5). */
+    /** Returns the canonical PSK length the native lib will produce. */
     @JvmStatic
-    external fun nativeRekeyIntervalSeconds(): Int
+    external fun nativePskLength(): Int
 
-    /** Convenience accessor that returns the version, or a placeholder when the lib isn't loaded. */
     fun getNativeVersion(): String =
         if (isLoaded) runCatching { nativeVersion() }.getOrDefault("<error>") else "<not loaded>"
 
     // ── Idiomatic Kotlin wrappers ──────────────────────────────────────────
 
     /**
-     * Long-lived Classic McEliece keypair. The secret key half is sensitive
-     * material — callers MUST persist via [RosenpassKeyStore] (Keystore-wrapped
-     * EncryptedFile) and zeroize the in-memory copy as soon as it's been
-     * handed to the native handshake function.
+     * Long-lived ML-KEM-1024 keypair. The secret key half is sensitive
+     * material — callers MUST persist via [RosenpassKeyStore] (Keystore-
+     * wrapped EncryptedFile) and zeroize the in-memory copy as soon as it's
+     * been handed to the native derive call.
      */
     data class StaticKeypair(val publicKey: ByteArray, val secretKey: ByteArray) {
-        // ByteArray uses identity equality by default; data classes need explicit overrides.
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
             if (other !is StaticKeypair) return false
@@ -132,22 +150,27 @@ object RosenpassNative {
         check(isLoaded) { "rosenpass-jni not loaded" }
         val raw = nativeGenerateKeypair()
         require(raw.size == 2) { "nativeGenerateKeypair returned ${raw.size} elements, expected 2" }
+        require(raw[0].size == PUBLIC_KEY_BYTES) {
+            "ML-KEM-1024 pk must be $PUBLIC_KEY_BYTES B, got ${raw[0].size}"
+        }
+        require(raw[1].size == SECRET_KEY_BYTES) {
+            "ML-KEM-1024 sk must be $SECRET_KEY_BYTES B, got ${raw[1].size}"
+        }
         return StaticKeypair(publicKey = raw[0], secretKey = raw[1])
     }
 
-    /** Typed wrapper around [nativeInitiateHandshake]. Returns null when the protocol body is M1-stub. */
-    fun initiateHandshake(peerStaticPublicKey: ByteArray, clientSecretKey: ByteArray): ByteArray? {
+    /**
+     * Decapsulate + derive PSK. Returns null if the lib isn't loaded or the
+     * underlying call rejected the input.
+     */
+    fun deriveSharedPsk(
+        clientSecretKey: ByteArray,
+        serverCiphertext: ByteArray,
+        serverNonce: ByteArray,
+    ): ByteArray? {
         if (!isLoaded) return null
-        return nativeInitiateHandshake(peerStaticPublicKey, clientSecretKey)
+        return runCatching {
+            nativeDeriveSharedPsk(clientSecretKey, serverCiphertext, serverNonce)
+        }.getOrNull()
     }
-
-    /** Typed wrapper around [nativeHandleResponse]. Returns null when the protocol body is M1-stub. */
-    fun handleResponse(responseMessage: ByteArray, clientSecretKey: ByteArray): ByteArray? {
-        if (!isLoaded) return null
-        return nativeHandleResponse(responseMessage, clientSecretKey)
-    }
-
-    /** Recommended re-key interval in seconds. Falls back to spec default (120) when lib isn't loaded. */
-    fun rekeyIntervalSeconds(): Int =
-        if (isLoaded) runCatching { nativeRekeyIntervalSeconds() }.getOrDefault(120) else 120
 }

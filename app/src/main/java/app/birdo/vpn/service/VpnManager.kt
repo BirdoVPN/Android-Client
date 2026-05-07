@@ -139,11 +139,21 @@ class VpnManager @Inject constructor(
         transitionStartTime = System.currentTimeMillis()
 
         val deviceName = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
+
+        // Upload our ML-KEM-1024 client public key when quantum protection is
+        // enabled so the server can encapsulate against it (BirdoPQ v1).
+        // Skipped silently when the native lib isn't loaded — server then
+        // falls back to issuing a classic random PSK (Mode.SERVER_PROVIDED).
+        val pqClientPublicKey: String? = if (prefs.quantumProtectionEnabled) {
+            RosenpassManager.getClientPublicKeyB64(context)
+        } else null
+
         val result = repository.connectVpn(
             serverNodeId = serverId,
             deviceName = deviceName,
             stealthMode = prefs.stealthModeEnabled,
             quantumProtection = prefs.quantumProtectionEnabled,
+            pqClientPublicKey = pqClientPublicKey,
         )
 
         when (result) {

@@ -328,6 +328,7 @@ class BirdoRepository @Inject constructor(
         deviceName: String = "Birdo-Android",
         stealthMode: Boolean = false,
         quantumProtection: Boolean = false,
+        pqClientPublicKey: String? = null,
     ): ApiResult<ConnectResponse> {
         // FIX-1-1: Generate X25519 keypair locally — private key never leaves the device.
         // Uses wireguard-android's crypto module which wraps Curve25519.
@@ -348,6 +349,7 @@ class BirdoRepository @Inject constructor(
                     clientPublicKey = clientPublicKey,
                     stealthMode = stealthMode,
                     quantumProtection = quantumProtection,
+                    pqClientPublicKey = pqClientPublicKey,
                 ))
             }
             if (result is ApiResult.Success) {

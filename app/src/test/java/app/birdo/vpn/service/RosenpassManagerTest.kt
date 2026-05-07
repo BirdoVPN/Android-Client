@@ -12,12 +12,13 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Pure-JVM unit tests for [RosenpassManager].
+ * Pure-JVM unit tests for [RosenpassManager] (BirdoPQ v1).
  *
- * The native lib isn't loaded in robolectric/host JVM, so all tests
- * exercise the fall-through paths (DISABLED / SERVER_PROVIDED modes
- * + crypto helpers). Bilateral mode requires a real device + server
- * and is covered by the M5 integration test plan in `native/ROADMAP.md`.
+ * The native lib isn't loaded in the host JVM, so all tests exercise the
+ * fall-through paths (DISABLED / SERVER_PROVIDED modes + crypto helpers).
+ * The bilateral ML-KEM-1024 decapsulation roundtrip is covered by the Rust
+ * `cargo test` suite in `native/rosenpass-jni/`. End-to-end on-device tests
+ * are tracked in `native/ROADMAP.md`.
  */
 class RosenpassManagerTest {
 
@@ -56,7 +57,6 @@ class RosenpassManagerTest {
 
     @Test
     fun `nativeLibVersion returns placeholder when lib not loaded`() {
-        // In the host JVM there's no librosenpass_jni.so — getter must not throw.
         val v = RosenpassManager.nativeLibVersion()
         assertNotNull(v)
         assertTrue("got: $v", v == "<not loaded>" || v.startsWith("rosenpass-jni"))
@@ -70,53 +70,6 @@ class RosenpassManagerTest {
         assertNotNull(RosenpassManager.Mode.valueOf("DISABLED"))
         assertNotNull(RosenpassManager.Mode.valueOf("SERVER_PROVIDED"))
         assertNotNull(RosenpassManager.Mode.valueOf("BILATERAL"))
-    }
-
-    // ── Endpoint parsing ──────────────────────────────────────────────────
-
-    @Test
-    fun `parseEndpoint accepts ipv4 host port`() {
-        val pair = invokeParseEndpoint("198.51.100.7:9999")
-        assertEquals("198.51.100.7" to 9999, pair)
-    }
-
-    @Test
-    fun `parseEndpoint accepts hostname`() {
-        val pair = invokeParseEndpoint("rp.example.com:443")
-        assertEquals("rp.example.com" to 443, pair)
-    }
-
-    @Test
-    fun `parseEndpoint strips ipv6 brackets`() {
-        val pair = invokeParseEndpoint("[2001:db8::1]:9999")
-        assertEquals("2001:db8::1" to 9999, pair)
-    }
-
-    @Test
-    fun `parseEndpoint rejects missing port`() {
-        assertNull(invokeParseEndpoint("host.example.com"))
-    }
-
-    @Test
-    fun `parseEndpoint rejects empty port`() {
-        assertNull(invokeParseEndpoint("host:"))
-    }
-
-    @Test
-    fun `parseEndpoint rejects out-of-range port`() {
-        assertNull(invokeParseEndpoint("host:0"))
-        assertNull(invokeParseEndpoint("host:70000"))
-        assertNull(invokeParseEndpoint("host:-1"))
-    }
-
-    @Test
-    fun `parseEndpoint rejects non-numeric port`() {
-        assertNull(invokeParseEndpoint("host:abc"))
-    }
-
-    @Test
-    fun `parseEndpoint rejects empty host`() {
-        assertNull(invokeParseEndpoint(":9999"))
     }
 
     // ── HKDF / HMAC helpers ────────────────────────────────────────────────
@@ -159,13 +112,13 @@ class RosenpassManagerTest {
         assertFalse(a.contentEquals(b))
     }
 
-    // ── helpers ────────────────────────────────────────────────────────────
+    // ── ML-KEM constants are exposed ──────────────────────────────────────
 
-    /** Reaches into the private parseEndpoint via reflection for direct unit testing. */
-    @Suppress("UNCHECKED_CAST")
-    private fun invokeParseEndpoint(input: String): Pair<String, Int>? {
-        val m = RosenpassManager::class.java.getDeclaredMethod("parseEndpoint", String::class.java)
-        m.isAccessible = true
-        return m.invoke(RosenpassManager, input) as Pair<String, Int>?
+    @Test
+    fun `RosenpassNative exposes correct ML-KEM-1024 constants`() {
+        assertEquals(1568, RosenpassNative.PUBLIC_KEY_BYTES)
+        assertEquals(3168, RosenpassNative.SECRET_KEY_BYTES)
+        assertEquals(1568, RosenpassNative.CIPHERTEXT_BYTES)
+        assertEquals(32, RosenpassNative.PSK_BYTES)
     }
 }

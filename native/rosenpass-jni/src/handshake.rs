@@ -1,119 +1,150 @@
-//! Rosenpass handshake — Classic McEliece (long-lived) + ML-KEM (ephemeral).
+//! BirdoPQ v1 — ML-KEM-1024 KEM-only PSK derivation.
 //!
-//! This module is the *only* place that touches PQ KEM crates and key material.
-//! Every secret returned via `Zeroizing<Vec<u8>>` so it's wiped from native
-//! memory on drop.
+//! This module is the only place that touches the PQ KEM. Every secret is
+//! returned via `Zeroizing<Vec<u8>>` so it's wiped from native memory on drop.
 //!
-//! ## M1 (this milestone) — what's implemented
-//! - `generate_keypair`: real Classic McEliece keypair via `pqcrypto-classicmceliece`.
-//! - `REKEY_INTERVAL_SECONDS`: constant from the Rosenpass spec.
+//! ## Why ML-KEM-1024 specifically
 //!
-//! ## M2 (next milestone) — what's NOT implemented
-//! - `initiate`: build `InitHello` frame (Classic McEliece encapsulation,
-//!   ephemeral ML-KEM keypair, transcript hash, MAC).
-//! - `handle_response`: parse `RespHello` (decapsulate ML-KEM ciphertext,
-//!   verify MAC, derive PSK via HKDF over combined transcript).
+//! - **NIST FIPS 203** standardised in August 2024. Algorithm name "ML-KEM"
+//!   (formerly Kyber).
+//! - **Security category 5** — the strongest of the three parameter sets,
+//!   matching AES-256 against quantum attackers.
+//! - Public key 1568 B, secret key 3168 B, ciphertext 1568 B — small enough
+//!   to ship over the existing `/connect` API with negligible overhead.
+//! - Shared secret 32 B — exactly the size WireGuard's PresharedKey wants.
 //!
-//! These are stubbed `Err(JniErr::NotImplemented(_))` so the library still
-//! loads in production and the Kotlin caller transparently falls back to
-//! the existing server-provided PSK path. See `native/ROADMAP.md`.
+//! ## Construction
+//!
+//! `psk = HKDF-SHA-256(IKM = ss, salt = "BirdoPQ-v1-PSK", info = nonce)[..32]`
 
 use crate::errors::JniErr;
-use pqcrypto_classicmceliece::mceliece460896 as mceliece;
-use pqcrypto_traits::kem::{PublicKey as KemPublicKey, SecretKey as KemSecretKey};
+use hkdf::Hkdf;
+use pqcrypto_mlkem::mlkem1024;
+use pqcrypto_traits::kem::{
+    Ciphertext as KemCiphertext, PublicKey as KemPublicKey,
+    SecretKey as KemSecretKey, SharedSecret as KemSharedSecret,
+};
+use sha2::Sha256;
 use zeroize::Zeroizing;
 
-/// Per the Rosenpass spec §5: re-key every ~120 s.
-pub const REKEY_INTERVAL_SECONDS: i32 = 120;
+const PSK_LEN: usize = 32;
+const HKDF_SALT: &[u8] = b"BirdoPQ-v1-PSK";
 
 pub struct StaticKeypair {
     pub public_key: Vec<u8>,
     pub secret_key: Zeroizing<Vec<u8>>,
 }
 
-/// Generate a long-lived Classic McEliece 460896 keypair.
-///
-/// `pqcrypto-classicmceliece` uses the NIST round-4 reference implementation
-/// internally, with `getrandom` as the entropy source (mapped to `/dev/urandom`
-/// on Android).
 pub fn generate_keypair() -> Result<StaticKeypair, JniErr> {
-    let (pk, sk) = mceliece::keypair();
+    let (pk, sk) = mlkem1024::keypair();
     Ok(StaticKeypair {
         public_key: pk.as_bytes().to_vec(),
         secret_key: Zeroizing::new(sk.as_bytes().to_vec()),
     })
 }
 
-/// Build the on-wire `InitHello` frame.
+/// Client side: decap server ciphertext, derive PSK.
 ///
-/// **TODO(M2)** — needs:
-/// 1. Generate ephemeral ML-KEM-512 keypair (`pqcrypto-mlkem`).
-/// 2. Encapsulate against `peer_static_public_key` (Classic McEliece) →
-///    `(ct_static, ss_static)`.
-/// 3. Build transcript per Rosenpass spec §4.2 (ProtocolNamePart, peer pid,
-///    sender pid, ephemeral_pk, ct_static).
-/// 4. Compute MAC over transcript with `chaining_key` derived from `ss_static`.
-/// 5. Serialise frame as: `[type=0x81 | sid_i(16) | ct_static(188) | epk_i(800) | mac(16)]`
-///    per the rosenpass `protocol::message::InitHello` layout.
-///
-/// Reference: <https://rosenpass.eu/whitepaper.pdf> §4 + the upstream
-/// `rosenpass::protocol::CryptoServer::initiate_conversation` implementation.
-pub fn initiate(
-    _peer_static_public_key: &[u8],
-    _client_secret_key: &Zeroizing<Vec<u8>>,
-) -> Result<Vec<u8>, JniErr> {
-    Err(JniErr::NotImplemented(
-        "initiate(): rosenpass InitHello frame builder pending M2 — \
-         see native/ROADMAP.md and rosenpass crate's protocol::CryptoServer",
-    ))
+/// ML-KEM is implicit-rejection — a malformed ciphertext won't error, it'll
+/// return a deterministically-derived random shared secret. The resulting
+/// PSK then won't match the server's, and the WireGuard handshake fails
+/// later. This is the desired behaviour: it prevents an attacker from
+/// learning whether decapsulation succeeded by observing client behaviour.
+pub fn derive_psk(
+    client_secret_key: &Zeroizing<Vec<u8>>,
+    server_ciphertext: &[u8],
+    server_nonce: &[u8],
+) -> Result<Zeroizing<Vec<u8>>, JniErr> {
+    let sk = mlkem1024::SecretKey::from_bytes(client_secret_key.as_slice())
+        .map_err(|e| JniErr::Crypto(format!("malformed client secret key: {e}")))?;
+    let ct = mlkem1024::Ciphertext::from_bytes(server_ciphertext)
+        .map_err(|e| JniErr::Crypto(format!("malformed server ciphertext: {e}")))?;
+
+    let ss = mlkem1024::decapsulate(&ct, &sk);
+    let mut ss_bytes = Zeroizing::new(ss.as_bytes().to_vec());
+
+    let psk = hkdf_to_psk(&ss_bytes, server_nonce);
+    ss_bytes.fill(0);
+    Ok(psk)
 }
 
-/// Parse `RespHello` and derive the 32-byte WireGuard PSK.
-///
-/// **TODO(M2)** — needs:
-/// 1. Parse frame: `[type=0x82 | sid_r(16) | sid_i(16) | ct_eph(736) | biscuit(174) | mac(16)]`.
-/// 2. Verify MAC against derived chaining key from M2-step-1.
-/// 3. Decapsulate `ct_eph` with our ephemeral ML-KEM secret → `ss_eph`.
-/// 4. Combine `ss_static + ss_eph` via HKDF-SHA512 with the spec's labels.
-/// 5. Output 32 bytes of OKM as the WireGuard PSK.
-/// 6. Zeroize all KEM secrets and intermediate state.
-pub fn handle_response(
-    _response_message: &[u8],
-    _client_secret_key: &Zeroizing<Vec<u8>>,
-) -> Result<Zeroizing<Vec<u8>>, JniErr> {
-    Err(JniErr::NotImplemented(
-        "handle_response(): rosenpass RespHello processor pending M2 — \
-         see native/ROADMAP.md",
-    ))
+/// Server side: encap against client_pk, return `(ciphertext, psk)`.
+pub fn encapsulate(
+    client_public_key: &[u8],
+    server_nonce: &[u8],
+) -> Result<(Vec<u8>, Zeroizing<Vec<u8>>), JniErr> {
+    let pk = mlkem1024::PublicKey::from_bytes(client_public_key)
+        .map_err(|e| JniErr::Crypto(format!("malformed client public key: {e}")))?;
+
+    let (ss, ct) = mlkem1024::encapsulate(&pk);
+    let mut ss_bytes = Zeroizing::new(ss.as_bytes().to_vec());
+    let ct_bytes = ct.as_bytes().to_vec();
+
+    let psk = hkdf_to_psk(&ss_bytes, server_nonce);
+    ss_bytes.fill(0);
+    Ok((ct_bytes, psk))
+}
+
+fn hkdf_to_psk(shared_secret: &[u8], nonce: &[u8]) -> Zeroizing<Vec<u8>> {
+    let hk = Hkdf::<Sha256>::new(Some(HKDF_SALT), shared_secret);
+    let mut psk = Zeroizing::new(vec![0u8; PSK_LEN]);
+    hk.expand(nonce, psk.as_mut_slice()).expect("HKDF length OK (RFC 5869)");
+    psk
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Sanity check the KEM is wired correctly. Generates a real keypair
-    /// (slow — Classic McEliece is ~1s on a workstation, slower on a phone),
-    /// so it's gated to release-with-debug profile only via `--release` in CI.
     #[test]
-    #[ignore = "slow — run with `cargo test --release -- --ignored`"]
-    fn keypair_roundtrip() {
+    fn client_server_roundtrip_derives_identical_psk() {
         let kp = generate_keypair().expect("generate_keypair");
+        let nonce = b"connect-2026-05-08T00:00:00Z";
 
-        // Sanity-check the published Classic McEliece 460896 sizes.
-        // pk ≈ 524 KB, sk ≈ 13 KB — these are the round-4 NIST reference sizes.
-        assert!(kp.public_key.len() > 100_000, "pk size suspicious: {}", kp.public_key.len());
-        assert!(kp.secret_key.len() > 10_000, "sk size suspicious: {}", kp.secret_key.len());
+        let (ct, server_psk) = encapsulate(&kp.public_key, nonce).expect("encapsulate");
+        assert_eq!(server_psk.len(), PSK_LEN);
+
+        let client_psk = derive_psk(&kp.secret_key, &ct, nonce).expect("derive_psk");
+        assert_eq!(client_psk.len(), PSK_LEN);
+
+        assert_eq!(
+            client_psk.as_slice(),
+            server_psk.as_slice(),
+            "client and server MUST derive identical PSK from the same (sk, ct, nonce)"
+        );
     }
 
     #[test]
-    fn initiate_returns_not_implemented() {
-        let r = initiate(&[0u8; 32], &Zeroizing::new(vec![0u8; 32]));
-        assert!(matches!(r, Err(JniErr::NotImplemented(_))));
+    fn different_nonces_produce_different_psks() {
+        let kp = generate_keypair().expect("kp");
+        let (ct, psk_a) = encapsulate(&kp.public_key, b"nonce-A").expect("enc A");
+        let (_, psk_b) = encapsulate(&kp.public_key, b"nonce-B").expect("enc B");
+        assert_ne!(psk_a.as_slice(), psk_b.as_slice());
+        let client_a = derive_psk(&kp.secret_key, &ct, b"nonce-A").unwrap();
+        assert_eq!(client_a.as_slice(), psk_a.as_slice());
     }
 
     #[test]
-    fn handle_response_returns_not_implemented() {
-        let r = handle_response(&[0u8; 32], &Zeroizing::new(vec![0u8; 32]));
-        assert!(matches!(r, Err(JniErr::NotImplemented(_))));
+    fn fresh_encap_each_call() {
+        let kp = generate_keypair().expect("kp");
+        let (ct1, _) = encapsulate(&kp.public_key, b"n").expect("enc 1");
+        let (ct2, _) = encapsulate(&kp.public_key, b"n").expect("enc 2");
+        assert_ne!(ct1, ct2, "encap MUST use fresh randomness per call");
+    }
+
+    #[test]
+    fn malformed_inputs_error_cleanly() {
+        let _kp = generate_keypair().expect("kp");
+        let r1 = derive_psk(&Zeroizing::new(vec![0u8; 16]), b"x", b"n");
+        assert!(matches!(r1, Err(JniErr::Crypto(_))));
+        let r2 = encapsulate(&[0u8; 16], b"n");
+        assert!(matches!(r2, Err(JniErr::Crypto(_))));
+    }
+
+    #[test]
+    fn kem_sizes_match_fips_203() {
+        let kp = generate_keypair().expect("kp");
+        assert_eq!(kp.public_key.len(), 1568, "ML-KEM-1024 pk size per FIPS 203");
+        assert_eq!(kp.secret_key.len(), 3168, "ML-KEM-1024 sk size per FIPS 203");
     }
 }

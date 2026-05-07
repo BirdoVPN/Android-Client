@@ -1,34 +1,68 @@
-//! Rosenpass JNI bindings — Birdo Android client.
+//! BirdoPQ post-quantum WireGuard PSK derivation.
 //!
-//! This crate is loaded at runtime as `librosenpass_jni.so` by
-//! `app.birdo.vpn.service.RosenpassNative`. It exposes the **minimum** Rust
-//! surface needed to perform a real bilateral post-quantum WireGuard PSK
-//! exchange against a Birdo VPN node running upstream `rosenpass`.
+//! ## Why this exists
 //!
-//! ## Status of this crate
+//! The "vendor upstream rosenpass" path is blocked on Android: `rosenpass`
+//! transitively requires `libsodium` as a system C library, which would
+//! mean cross-compiling libsodium for arm64-v8a / armeabi-v7a / x86_64
+//! before we can even start. Worse, the upstream `rosenpass` binary expects
+//! a static `[[peers]]` block per known peer, which doesn't work for a VPN
+//! with thousands of clients.
 //!
-//! This is the **foundation milestone** (M1). The JNI surface, build system,
-//! gradle integration, and Kotlin loader are all wired up end-to-end. The
-//! actual handshake state machine is intentionally `unimplemented!()` with
-//! detailed `TODO(M2)` comments referencing the exact upstream `rosenpass`
-//! crate functions to call. See `native/ROADMAP.md` for the full plan.
+//! Instead we ship the same cryptographic guarantee using a minimal
+//! Mullvad-style KEM-only protocol that we control end-to-end. The PSK is
+//! still derived from a NIST-standardised post-quantum KEM (ML-KEM-1024,
+//! FIPS 203), so "post-quantum WireGuard PSK" is an accurate description
+//! and the HNDL threat is genuinely defeated.
 //!
-//! ## Why we don't just `use rosenpass`
+//! ## Protocol — BirdoPQ v1
 //!
-//! The upstream `rosenpass` crate's library API is in flux — its
-//! `protocol::CryptoServer` state machine is `pub(crate)` in several recent
-//! releases. We will vendor the relevant modules under `vendor/rosenpass/`
-//! once the protocol body lands in M2. Until then, this crate carries only
-//! the JNI surface plus PQ primitive crates from `pqcrypto-*` so the .so
-//! artifact builds and loads on-device, allowing the rest of the integration
-//! (Kotlin loader, gradle task, CI build matrix) to be exercised in CI.
+//! ```text
+//! Client                                            Server
+//! ┌──────────────────────────────────────────────────────────┐
+//! │ 1. (one-time) generate ML-KEM-1024 keypair (pk_c, sk_c)  │
+//! │    persist via RosenpassKeyStore (sk_c in EncryptedFile) │
+//! └──────────────────────────────────────────────────────────┘
 //!
-//! ## Safety
+//!   POST /connect { ... pq_client_public_key: pk_c (base64) }  ──▶
 //!
-//! Every `extern "system"` function below validates inputs and converts
-//! panics to a thrown Java exception via `env.exception_check()` /
-//! `env.throw_new()`. Returning a JVM into an unwound Rust stack would be
-//! UB; we use `panic = "abort"` in `Cargo.toml` as a belt-and-braces.
+//!                                                ┌────────────────────┐
+//!                                                │ 2. encap(pk_c)     │
+//!                                                │   → (ct, ss)       │
+//!                                                │   nonce_s = rand   │
+//!                                                │   psk = HKDF(ss,   │
+//!                                                │     nonce_s,       │
+//!                                                │     "BirdoPQ v1")  │
+//!                                                └────────────────────┘
+//!
+//!   ◀──  ConnectResponse {
+//!            ...,
+//!            quantumEnabled: true,
+//!            rosenpassPublicKey: ct  (base64),       // re-used field name
+//!            rosenpassEndpoint: nonce_s  (base64),   // re-used field name
+//!            presharedKey: <classic random PSK fallback>
+//!        }
+//!
+//! ┌──────────────────────────────────────────────────────────┐
+//! │ 3. decap(sk_c, ct) → ss                                  │
+//! │    psk = HKDF(ss, nonce_s, "BirdoPQ v1")                 │
+//! │    inject psk into WireGuard PresharedKey                │
+//! └──────────────────────────────────────────────────────────┘
+//! ```
+//!
+//! Both sides now hold the SAME 32-byte PSK derived from a PQ-KEM. An attacker
+//! recording today's TLS API traffic and tomorrow's WireGuard handshake cannot
+//! recover the PSK without first breaking ML-KEM-1024 — which by definition
+//! requires a CRQC capable of solving Module-LWE, the lattice problem ML-KEM
+//! reduces to.
+//!
+//! ## Reusing existing API field names
+//!
+//! `rosenpassPublicKey` and `rosenpassEndpoint` are repurposed to carry the
+//! ML-KEM ciphertext and per-connect nonce respectively. This avoids a
+//! breaking schema change and keeps backwards compat with existing
+//! `ConnectResponse` deserialisation. They are NOT semantically the same as
+//! the upstream-Rosenpass fields anymore — see the kdoc on `RosenpassNative`.
 
 #![deny(unsafe_op_in_unsafe_fn)]
 #![warn(clippy::pedantic)]
@@ -44,7 +78,7 @@ use zeroize::Zeroizing;
 mod errors;
 mod handshake;
 
-use errors::{throw_runtime, JniErr};
+use errors::throw_runtime;
 
 const TAG: &str = "RosenpassJNI";
 const PSK_LEN_BYTES: usize = 32;
@@ -58,46 +92,29 @@ fn init_logger_once() {
                 .with_max_level(LevelFilter::Info)
                 .with_tag(TAG),
         );
-        log::info!("rosenpass-jni initialised (M1 foundation)");
+        log::info!("rosenpass-jni v{} initialised (BirdoPQ v1)", env!("CARGO_PKG_VERSION"));
     });
 }
 
-// ── nativeVersion ──────────────────────────────────────────────────────────
-
-/// Returns the version of the loaded native library.
-///
-/// Used by `RosenpassNative.getNativeVersion()` for diagnostics — lets the
-/// Kotlin side detect ABI/build mismatches between the .so and the loader.
 #[no_mangle]
 pub extern "system" fn Java_app_birdo_vpn_service_RosenpassNative_nativeVersion<'a>(
-    mut env: JNIEnv<'a>,
+    env: JNIEnv<'a>,
     _class: JClass<'a>,
 ) -> JString<'a> {
     init_logger_once();
     let v = format!(
-        "rosenpass-jni {} ({}, {})",
+        "rosenpass-jni {} (BirdoPQ v1, ML-KEM-1024, {}, {})",
         env!("CARGO_PKG_VERSION"),
         std::env::consts::ARCH,
         if cfg!(debug_assertions) { "debug" } else { "release" }
     );
     env.new_string(v).unwrap_or_else(|_| {
-        // If we can't even build a string something is very wrong with the JVM —
-        // return a static empty string rather than panicking.
         env.new_string("").expect("JVM cannot allocate empty string")
     })
 }
 
-// ── nativeGenerateKeypair ──────────────────────────────────────────────────
-
-/// Generate a long-lived Classic McEliece keypair.
-///
-/// Returns a 2-element `byte[][]`: `[publicKey, secretKey]`.
-///
-/// **Note:** Classic McEliece public keys are ~261 KB and secret keys ~6 MB.
-/// This is normal — they're allocated in `Zeroizing` buffers so the secret
-/// material is wiped on drop. The keypair is generated **once per install**
-/// and persisted via `RosenpassManager.persistKeypair()` to avoid the cost
-/// on every connect.
+/// Generate a long-lived ML-KEM-1024 keypair for the client.
+/// Returns `[publicKey (~1568 B), secretKey (~3168 B)]`.
 #[no_mangle]
 pub extern "system" fn Java_app_birdo_vpn_service_RosenpassNative_nativeGenerateKeypair<'a>(
     mut env: JNIEnv<'a>,
@@ -107,7 +124,6 @@ pub extern "system" fn Java_app_birdo_vpn_service_RosenpassNative_nativeGenerate
 
     match handshake::generate_keypair() {
         Ok(kp) => {
-            // Allocate a 2-element byte[][] on the JVM heap and fill it.
             let byte_array_class = match env.find_class("[B") {
                 Ok(c) => c,
                 Err(e) => {
@@ -122,7 +138,6 @@ pub extern "system" fn Java_app_birdo_vpn_service_RosenpassNative_nativeGenerate
                     return std::ptr::null_mut();
                 }
             };
-
             let pk_jb = match env.byte_array_from_slice(&kp.public_key) {
                 Ok(b) => b,
                 Err(e) => {
@@ -137,14 +152,13 @@ pub extern "system" fn Java_app_birdo_vpn_service_RosenpassNative_nativeGenerate
                     return std::ptr::null_mut();
                 }
             };
-
             if env.set_object_array_element(&outer, 0, pk_jb).is_err()
                 || env.set_object_array_element(&outer, 1, sk_jb).is_err()
             {
                 throw_runtime(&mut env, "set_object_array_element failed");
                 return std::ptr::null_mut();
             }
-            let _ = class; // silence unused warning
+            let _ = class;
             outer.into_raw()
         }
         Err(e) => {
@@ -154,122 +168,110 @@ pub extern "system" fn Java_app_birdo_vpn_service_RosenpassNative_nativeGenerate
     }
 }
 
-// ── nativeInitiateHandshake ────────────────────────────────────────────────
-
-/// Build the first Rosenpass handshake message (`InitHello`) addressed to the
-/// peer identified by `peerStaticPublicKey`.
-///
-/// The returned `byte[]` is the on-the-wire `InitHello` frame that the caller
-/// should send to the node's `rosenpass_endpoint` over UDP.
-///
-/// `clientSecretKey` is the static Classic McEliece secret key produced by
-/// `nativeGenerateKeypair`. It is wiped from native memory on drop and is
-/// not retained beyond this call.
-///
-/// **Status:** stub — see ROADMAP.md M2. Returns `null` and logs a warning
-/// until the protocol body lands. The Kotlin caller then falls back to the
-/// existing server-provided PSK path.
+/// Decapsulate the server-supplied ML-KEM ciphertext and derive the 32-byte
+/// WireGuard PSK. Returns null on any failure (caller falls back gracefully).
 #[no_mangle]
-pub extern "system" fn Java_app_birdo_vpn_service_RosenpassNative_nativeInitiateHandshake<'a>(
+pub extern "system" fn Java_app_birdo_vpn_service_RosenpassNative_nativeDeriveSharedPsk<'a>(
     mut env: JNIEnv<'a>,
     _class: JClass<'a>,
-    peer_static_public_key: JByteArray<'a>,
     client_secret_key: JByteArray<'a>,
+    server_ciphertext: JByteArray<'a>,
+    server_nonce: JByteArray<'a>,
 ) -> JByteArray<'a> {
     init_logger_once();
 
-    let peer_pk = match env.convert_byte_array(&peer_static_public_key) {
-        Ok(b) => b,
-        Err(e) => {
-            throw_runtime(&mut env, &format!("read peer_static_public_key: {e}"));
-            return JObject::null().into();
-        }
-    };
     let sk = match env.convert_byte_array(&client_secret_key) {
         Ok(b) => Zeroizing::new(b),
         Err(e) => {
-            throw_runtime(&mut env, &format!("read client_secret_key: {e}"));
+            log::warn!(target: TAG, "read client_secret_key failed: {e}");
             return JObject::null().into();
         }
     };
-
-    match handshake::initiate(&peer_pk, &sk) {
-        Ok(msg) => env
-            .byte_array_from_slice(&msg)
-            .unwrap_or_else(|_| JObject::null().into()),
-        Err(JniErr::NotImplemented(reason)) => {
-            log::warn!(target: TAG, "initiate_handshake: {reason}");
-            JObject::null().into()
-        }
-        Err(e) => {
-            throw_runtime(&mut env, &format!("initiate_handshake: {e}"));
-            JObject::null().into()
-        }
-    }
-}
-
-// ── nativeHandleResponse ───────────────────────────────────────────────────
-
-/// Process the peer's `RespHello` reply and derive the 32-byte WireGuard PSK.
-///
-/// `responseMessage` is the raw UDP payload received from the node in reply
-/// to the `InitHello` produced by `nativeInitiateHandshake`. Returns the
-/// derived 32-byte PSK on success, or `null` if the response is malformed,
-/// authentication fails, or the protocol body is not yet implemented.
-///
-/// **Status:** stub — see ROADMAP.md M2.
-#[no_mangle]
-pub extern "system" fn Java_app_birdo_vpn_service_RosenpassNative_nativeHandleResponse<'a>(
-    mut env: JNIEnv<'a>,
-    _class: JClass<'a>,
-    response_message: JByteArray<'a>,
-    client_secret_key: JByteArray<'a>,
-) -> JByteArray<'a> {
-    init_logger_once();
-
-    let resp = match env.convert_byte_array(&response_message) {
+    let ct = match env.convert_byte_array(&server_ciphertext) {
         Ok(b) => b,
         Err(e) => {
-            throw_runtime(&mut env, &format!("read response_message: {e}"));
+            log::warn!(target: TAG, "read server_ciphertext failed: {e}");
             return JObject::null().into();
         }
     };
-    let sk = match env.convert_byte_array(&client_secret_key) {
-        Ok(b) => Zeroizing::new(b),
+    let nonce = match env.convert_byte_array(&server_nonce) {
+        Ok(b) => b,
         Err(e) => {
-            throw_runtime(&mut env, &format!("read client_secret_key: {e}"));
+            log::warn!(target: TAG, "read server_nonce failed: {e}");
             return JObject::null().into();
         }
     };
 
-    match handshake::handle_response(&resp, &sk) {
+    match handshake::derive_psk(&sk, &ct, &nonce) {
         Ok(psk) => {
             debug_assert_eq!(psk.len(), PSK_LEN_BYTES);
             env.byte_array_from_slice(&psk)
                 .unwrap_or_else(|_| JObject::null().into())
         }
-        Err(JniErr::NotImplemented(reason)) => {
-            log::warn!(target: TAG, "handle_response: {reason}");
-            JObject::null().into()
-        }
         Err(e) => {
-            throw_runtime(&mut env, &format!("handle_response: {e}"));
+            log::warn!(target: TAG, "derive_psk failed: {e} — caller will fallback");
             JObject::null().into()
         }
     }
 }
 
-// ── nativeRekeyInterval ────────────────────────────────────────────────────
-
-/// Returns the recommended re-key interval in seconds.
-///
-/// Per the Rosenpass spec, peers should re-derive a fresh PSK approximately
-/// every 120 s. Exposed as a function so the schedule can be tightened
-/// in future without redeploying clients.
+/// Server-side encapsulation, exposed via JNI ONLY for unit tests that
+/// exercise the full client↔server roundtrip in-process. Production
+/// server-side code uses `native/birdo-pq-server/` instead.
 #[no_mangle]
-pub extern "system" fn Java_app_birdo_vpn_service_RosenpassNative_nativeRekeyIntervalSeconds<'a>(
+pub extern "system" fn Java_app_birdo_vpn_service_RosenpassNative_nativeEncapsulateForServer<'a>(
+    mut env: JNIEnv<'a>,
+    _class: JClass<'a>,
+    client_public_key: JByteArray<'a>,
+    server_nonce: JByteArray<'a>,
+) -> jobjectArray {
+    init_logger_once();
+
+    let pk = match env.convert_byte_array(&client_public_key) {
+        Ok(b) => b,
+        Err(e) => {
+            throw_runtime(&mut env, &format!("read client_public_key: {e}"));
+            return std::ptr::null_mut();
+        }
+    };
+    let nonce = match env.convert_byte_array(&server_nonce) {
+        Ok(b) => b,
+        Err(e) => {
+            throw_runtime(&mut env, &format!("read server_nonce: {e}"));
+            return std::ptr::null_mut();
+        }
+    };
+
+    match handshake::encapsulate(&pk, &nonce) {
+        Ok((ct, psk)) => {
+            let byte_array_class = match env.find_class("[B") {
+                Ok(c) => c,
+                Err(_) => return std::ptr::null_mut(),
+            };
+            let outer = match env.new_object_array(2, byte_array_class, JObject::null()) {
+                Ok(arr) => arr,
+                Err(_) => return std::ptr::null_mut(),
+            };
+            let ct_jb = env.byte_array_from_slice(&ct).unwrap_or_default();
+            let psk_jb = env.byte_array_from_slice(&psk).unwrap_or_default();
+            if env.set_object_array_element(&outer, 0, ct_jb).is_err()
+                || env.set_object_array_element(&outer, 1, psk_jb).is_err()
+            {
+                return std::ptr::null_mut();
+            }
+            outer.into_raw()
+        }
+        Err(e) => {
+            throw_runtime(&mut env, &format!("encapsulate: {e}"));
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_birdo_vpn_service_RosenpassNative_nativePskLength<'a>(
     _env: JNIEnv<'a>,
     _class: JClass<'a>,
 ) -> jint {
-    handshake::REKEY_INTERVAL_SECONDS
+    PSK_LEN_BYTES as jint
 }
