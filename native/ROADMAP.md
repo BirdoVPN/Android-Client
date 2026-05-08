@@ -13,7 +13,7 @@ v1** — a Mullvad-style ML-KEM-1024 KEM-only construction. End-to-end status:
 | Encrypted keystore | ✅ done | `app/src/main/java/app/birdo/vpn/service/RosenpassKeyStore.kt` |
 | API schema (request + response) | ✅ done | `shared/.../model/Models.kt` |
 | Server-side encap binary | ✅ done, 3/3 unit tests pass | `birdo-pq-server/` |
-| Backend `/connect` integration | ⏳ pending — separate `birdo-vpn-server` repo |
+| Backend `/connect` integration (NestJS) | ✅ done, 4/4 unit tests pass | `birdo-web/backend/src/vpn/birdo-pq.service.ts` |
 | Cryptographer audit | ⏳ pending — required before flipping default-on |
 | Staged rollout (1% → 100%) | ⏳ pending — requires audit + telemetry counters |
 
@@ -80,10 +80,13 @@ already in place). Track upstream:
 
 ## Pending work
 
-- [ ] **Backend `/connect` integration** in `birdo-vpn-server` — shell out
-      to `birdo-pq-server encap` when the request body includes
-      `pq_client_public_key`, return the ciphertext + nonce, inject the PSK
-      into wg peer config.
+- [x] **Backend `/connect` integration** — implemented in pure TypeScript
+      via `@noble/post-quantum` ML-KEM-1024 + `@noble/hashes` HKDF-SHA-256
+      (`birdo-web/backend/src/vpn/birdo-pq.service.ts`). No subprocess
+      spawn, no native binary deploy. Round-trip unit test proves
+      server-derived PSK == client-decap PSK byte-for-byte. The standalone
+      `birdo-pq-server` Rust binary is kept as an alternative
+      reference/CLI implementation for non-Node backends.
 - [ ] **Cryptographer audit** of the BirdoPQ v1 construction:
       - HKDF salt + info parameter choice
       - Implicit rejection behaviour of pqcrypto-mlkem
