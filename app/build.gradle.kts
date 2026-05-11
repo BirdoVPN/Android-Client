@@ -233,7 +233,7 @@ dependencies {
     implementation("com.google.android.play:app-update-ktx:2.1.0")
 
     // ── Google Play Billing (subscriptions + IAP) ────────────────
-    implementation("com.android.billingclient:billing-ktx:7.1.1")
+    implementation("com.android.billingclient:billing-ktx:8.3.0")
 
     // ── Glance (Home Screen Widget) ──────────────────────────────
     implementation("androidx.glance:glance-appwidget:1.1.1")
