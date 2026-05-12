@@ -108,9 +108,21 @@ pub extern "system" fn Java_app_birdo_vpn_service_RosenpassNative_nativeVersion<
         std::env::consts::ARCH,
         if cfg!(debug_assertions) { "debug" } else { "release" }
     );
-    env.new_string(v).unwrap_or_else(|_| {
-        env.new_string("").expect("JVM cannot allocate empty string")
-    })
+    // AUDIT-JNI-1: never panic across the FFI boundary. Both allocations are
+    // best-effort — if the JVM is so memory-starved that even an empty
+    // string allocation fails we hand back a null JString and let the
+    // Kotlin caller treat it as "version unavailable" instead of aborting
+    // the whole process.
+    match env.new_string(v) {
+        Ok(s) => s,
+        Err(_) => match env.new_string("") {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!(target: TAG, "nativeVersion: JVM string alloc failed: {e}");
+                JString::from(unsafe { JObject::from_raw(std::ptr::null_mut()) })
+            }
+        },
+    }
 }
 
 /// Generate a long-lived ML-KEM-1024 keypair for the client.
