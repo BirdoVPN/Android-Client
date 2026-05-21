@@ -335,28 +335,7 @@ data class CreatePortForwardResponse(
 )
 
 // ─── Google Play Billing ─────────────────────────────────────────────────────
-
-/**
- * Server-side acknowledgement of a Google Play purchase. The mobile client
- * sends the purchaseToken + productId after a successful in-app purchase;
- * the backend validates the receipt against Google Play Developer API and
- * provisions the matching subscription tier on the user's account.
- */
-@Serializable
-data class GooglePlayAcknowledgeRequest(
-    val productId: String,
-    val purchaseToken: String,
-    val packageName: String,
-    val orderId: String? = null,
-)
-
-@Serializable
-data class GooglePlayAcknowledgeResponse(
-    val ok: Boolean = false,
-    val plan: String = "RECON",
-    val newPeriodEnd: String? = null,
-    val error: String? = null,
-)
+// Removed: Android distributed as APK from GitHub Releases; no Play Billing.
 
 // ─── Key Rotation ────────────────────────────────────────────────────────────
 

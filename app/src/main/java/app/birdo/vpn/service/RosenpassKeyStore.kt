@@ -10,10 +10,11 @@ import java.io.IOException
 /**
  * On-device persistence for the long-lived Rosenpass static keypair.
  *
- * Classic McEliece keys are large (~524 KB public, ~13 KB secret) so we
- * generate the pair **once per install** and store both halves on disk.
- * The secret half is wrapped in an Android Keystore-backed
- * [EncryptedFile] so it's protected at rest by hardware-backed AES-256-GCM.
+ * BirdoPQ v1 uses **ML-KEM-1024** (FIPS 203, formerly Kyber-1024). Key sizes
+ * are 1568 B for the public key and 3168 B for the secret key. We generate
+ * the pair **once per install** and store both halves on disk. The secret
+ * half is wrapped in an Android Keystore-backed [EncryptedFile] so it is
+ * protected at rest by hardware-backed AES-256-GCM.
  *
  * Both halves are kept under the app's private files directory, which is
  * inaccessible to other apps without root.
@@ -21,10 +22,10 @@ import java.io.IOException
  * ## Why two files instead of [EncryptedSharedPreferences]
  *
  * EncryptedSharedPreferences re-encrypts the ENTIRE preferences blob on
- * every commit and reads the whole thing into memory. With a 13 KB secret
- * key, that's not a performance issue — but Classic McEliece public keys
- * are 524 KB and we don't need to encrypt those (they're public). Splitting
- * into two files keeps the encrypted-write path small.
+ * every commit and reads the whole thing into memory. The secret-key write
+ * path is the only one that must be encrypted (the public key is, by
+ * definition, public), so splitting into two files keeps the encrypted
+ * write path minimal and avoids re-encrypting the public key on every save.
  */
 internal class RosenpassKeyStore(context: Context) {
 

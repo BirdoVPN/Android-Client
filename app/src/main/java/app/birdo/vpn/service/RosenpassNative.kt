@@ -1,6 +1,8 @@
 package app.birdo.vpn.service
 
+import android.content.Context
 import android.util.Log
+import app.birdo.vpn.utils.NativeLibraryVerifier
 
 /**
  * JNI bridge to `librosenpass_jni.so` — BirdoPQ v1 (ML-KEM-1024).
@@ -50,18 +52,64 @@ object RosenpassNative {
     var isLoaded: Boolean = false
         private set
 
-    init {
-        try {
-            System.loadLibrary(LIB_NAME)
-            isLoaded = true
-            Log.i(TAG, "loaded $LIB_NAME successfully — version=${nativeVersion()}")
-        } catch (e: UnsatisfiedLinkError) {
-            isLoaded = false
-            Log.w(TAG, "native lib $LIB_NAME not present — falling back to server-provided PSK path", e)
-        } catch (t: Throwable) {
-            isLoaded = false
-            Log.e(TAG, "unexpected failure loading $LIB_NAME", t)
+    /**
+     * AUDIT-E1 latch. `true` once [verifyIntegrity] has confirmed the loaded
+     * `librosenpass_jni.so` matches the SHA-256 baked into BuildConfig at
+     * build time. Callers MUST gate every PQ operation on this AND
+     * [isLoaded]; otherwise an attacker who swapped just the JNI .so could
+     * silently downgrade the BirdoPQ PSK to attacker-known bytes.
+     */
+    @Volatile
+    var isVerified: Boolean = false
+        private set
+
+    /**
+     * PFA-H7: hash-then-load. We deliberately do NOT load the .so in an
+     * `init {}` block, because `System.loadLibrary` runs JNI_OnLoad which
+     * would let a swapped-binary attacker execute code BEFORE we ever ran
+     * the SHA-256 integrity check. Instead, [verifyIntegrity] runs the
+     * hash check against the absolute path under nativeLibraryDir, and
+     * only on success does it call `System.load(absolutePath)`.
+     *
+     * Callers (only [RosenpassManager]) MUST call [verifyIntegrity] first
+     * and then check [isLoaded] before invoking any `native*` method.
+     */
+    @Synchronized
+    fun verifyIntegrity(context: Context): Boolean {
+        if (isVerified && isLoaded) return true
+        // Hash first — if the file is missing/tampered/unregistered, do not
+        // touch System.load and leave isLoaded=false so PQ stays disabled.
+        val ok = NativeLibraryVerifier.verifyLibrary(context, LIB_NAME)
+        if (!ok) {
+            Log.e(TAG, "$LIB_NAME integrity check FAILED — BirdoPQ disabled (hash mismatch or missing)")
+            return false
         }
+        if (!isLoaded) {
+            try {
+                val nativeLibDir = context.applicationInfo.nativeLibraryDir
+                val libFile = java.io.File(nativeLibDir, "lib$LIB_NAME.so")
+                if (libFile.exists()) {
+                    System.load(libFile.absolutePath)
+                } else {
+                    // Debug builds may have the .so on the standard search
+                    // path even when nativeLibraryDir lookup fails.
+                    System.loadLibrary(LIB_NAME)
+                }
+                isLoaded = true
+                Log.i(TAG, "loaded $LIB_NAME (verified) — version=${runCatching { nativeVersion() }.getOrDefault("<error>")}")
+            } catch (e: UnsatisfiedLinkError) {
+                isLoaded = false
+                Log.w(TAG, "native lib $LIB_NAME not present — falling back to server-provided PSK path", e)
+                return false
+            } catch (t: Throwable) {
+                isLoaded = false
+                Log.e(TAG, "unexpected failure loading $LIB_NAME", t)
+                return false
+            }
+        }
+        isVerified = true
+        Log.i(TAG, "$LIB_NAME integrity verified — BirdoPQ enabled")
+        return true
     }
 
     /** Returns the native lib version string, e.g. `"rosenpass-jni 0.2.0 (BirdoPQ v1, ML-KEM-1024, aarch64, release)"`. */

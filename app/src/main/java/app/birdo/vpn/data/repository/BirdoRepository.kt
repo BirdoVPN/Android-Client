@@ -229,29 +229,6 @@ class BirdoRepository @Inject constructor(
     suspend fun getProfile(): ApiResult<UserProfile> =
         withAutoRefresh("Failed to get profile") { api.getProfile() }
 
-    suspend fun acknowledgeGooglePlayPurchase(
-        productId: String,
-        purchaseToken: String,
-        packageName: String,
-        orderId: String?,
-    ): ApiResult<GooglePlayAcknowledgeResponse> {
-        val result = withAutoRefresh("Failed to acknowledge purchase") {
-            api.acknowledgeGooglePlayPurchase(
-                GooglePlayAcknowledgeRequest(
-                    productId = productId,
-                    purchaseToken = purchaseToken,
-                    packageName = packageName,
-                    orderId = orderId,
-                )
-            )
-        }
-        // A successful acknowledge changes the user's plan — bust the cache.
-        if (result is ApiResult.Success && result.data.ok) {
-            invalidateSubscriptionCache()
-        }
-        return result
-    }
-
     suspend fun getSubscription(forceRefresh: Boolean = false): ApiResult<SubscriptionStatus> {
         if (!forceRefresh) {
             cachedSubscriptionOrNull()?.let { return ApiResult.Success(it) }

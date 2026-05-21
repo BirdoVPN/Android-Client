@@ -5,11 +5,15 @@ module for the Birdo Android client.
 
 ## Why native?
 
-[Rosenpass](https://rosenpass.eu) is a Rust implementation of a post-quantum
-secure WireGuard preshared-key exchange built on Classic McEliece + ML-KEM
-(Kyber), both NIST PQ finalists. There is no battle-tested pure-JVM
-implementation of either KEM, so we ship the upstream Rust code as a JNI
-library compiled per Android ABI.
+[Rosenpass](https://rosenpass.eu) inspired this design: a Rust-implemented
+post-quantum secure WireGuard preshared-key exchange. Our current
+production build uses **ML-KEM-1024 (FIPS 203 / formerly CRYSTALS-Kyber)**
+exclusively — the NIST-standardised lattice KEM. Earlier prototypes also
+linked Classic McEliece for hybrid evaluation; that dependency has been
+removed (see `Cargo.toml` — only `pqcrypto-mlkem` remains). There is no
+battle-tested pure-JVM implementation of ML-KEM, so we ship PQClean's
+reference C through `pqcrypto-mlkem` as a JNI library compiled per
+Android ABI.
 
 ## Layout
 

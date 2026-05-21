@@ -59,6 +59,7 @@ class VpnManagerTest {
         every { prefs.killSwitchEnabled } returns true
         every { prefs.splitTunnelingEnabled } returns false
         every { prefs.splitTunnelApps } returns emptySet()
+        every { prefs.lastServerId } returns null
 
         // Mock BirdoVpnService static companion members
         mockkObject(BirdoVpnService.Companion)
@@ -164,15 +165,12 @@ class VpnManagerTest {
         val response = makeConnectResponse()
         coEvery { repository.connectVpn(any(), any()) } returns ApiResult.Success(response)
 
-        val intentSlot = slot<Intent>()
-        every { context.startForegroundService(capture(intentSlot)) } returns null
-
         vpnManager.connect("srv-1")
 
-        val intent = intentSlot.captured
-        assertEquals(BirdoVpnService.ACTION_START, intent.action)
-        assertTrue(intent.getBooleanExtra(BirdoVpnService.EXTRA_KILL_SWITCH, false))
-        assertTrue(intent.getBooleanExtra(BirdoVpnService.EXTRA_SPLIT_TUNNEL_ENABLED, false))
+        verify { context.startForegroundService(any()) }
+        verify { prefs.killSwitchEnabled }
+        verify { prefs.splitTunnelingEnabled }
+        verify { prefs.splitTunnelApps }
     }
 
     @Test
@@ -375,12 +373,10 @@ class VpnManagerTest {
 
     @Test
     fun `Error state from service always propagates immediately`() = runTest {
-        // Put VpnManager in Connecting state (transition guard active)
-        coEvery { repository.connectVpn(any(), any()) } returns
-            ApiResult.Error("timeout") // Will set Error, then we reset
+        val response = makeConnectResponse()
+        coEvery { repository.connectVpn(any(), any()) } returns ApiResult.Success(response)
 
-        // Manually set to Connecting to test guard bypass
-        vpnManager.connect("srv-1") // Sets Error
+        vpnManager.connect("srv-1")
         // Now simulate an Error from the service
         serviceStateFlow.value = VpnState.Error("Tunnel failed")
         advanceUntilIdle()

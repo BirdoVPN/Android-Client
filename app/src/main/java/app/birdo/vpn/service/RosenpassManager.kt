@@ -180,6 +180,12 @@ object RosenpassManager {
      * doesn't get masked by a silent downgrade.
      */
     private suspend fun tryDecapsulate(context: Context, config: ConnectResponse): ByteArray? {
+        // PFA-H7: integrity-verify FIRST (which also performs the hash-then-load
+        // sequence). isLoaded only becomes true after the hash matches.
+        if (!RosenpassNative.verifyIntegrity(context)) {
+            Log.e(TAG, "rosenpass-jni integrity unverified — bilateral PQ DISABLED")
+            return null
+        }
         if (!RosenpassNative.isLoaded) {
             Log.d(TAG, "rosenpass-jni not loaded — bilateral PQ unavailable")
             return null
@@ -191,17 +197,22 @@ object RosenpassManager {
             return null
         }
         // Field name re-used: rosenpassEndpoint now carries the per-connect nonce.
-        // If the server omits one, fall back to a fixed protocol nonce (still
-        // produces a valid PSK, just lacks per-connect domain separation).
+        // PFA-M5: refuse to derive a PSK against a missing nonce. ML-KEM
+        // gives a fresh shared secret per encapsulation so the previous
+        // hard-coded fallback constant did NOT cause cryptographic nonce
+        // reuse, but it removed per-connect domain separation and let a
+        // misconfigured server silently weaken the protocol. Fail closed
+        // to the server-provided classical PSK path (logged, surfaced via
+        // modeFlow) instead.
         val nonceB64 = config.rosenpassEndpoint
-        val nonce = if (nonceB64.isNullOrBlank()) {
-            DEFAULT_NONCE_BYTES
-        } else {
-            try { Base64.decode(nonceB64, Base64.NO_WRAP) }
-            catch (e: Exception) {
-                Log.e(TAG, "malformed PQ nonce — bilateral PQ aborted", e)
-                return null
-            }
+        if (nonceB64.isNullOrBlank()) {
+            Log.e(TAG, "server omitted per-connect PQ nonce — bilateral PQ aborted (PFA-M5)")
+            return null
+        }
+        val nonce = try { Base64.decode(nonceB64, Base64.NO_WRAP) }
+        catch (e: Exception) {
+            Log.e(TAG, "malformed PQ nonce — bilateral PQ aborted", e)
+            return null
         }
         val ciphertext = try {
             Base64.decode(ctB64, Base64.NO_WRAP)
@@ -235,6 +246,8 @@ object RosenpassManager {
     }
 
     private fun loadOrGenerateKeypair(context: Context): RosenpassNative.StaticKeypair? {
+        // AUDIT-E1 / PFA-H7: belt-and-braces — verify+load before any keypair work.
+        if (!RosenpassNative.verifyIntegrity(context)) return null
         if (!RosenpassNative.isLoaded) return null
         val store = ensureKeyStore(context)
         val existing = store.load()
@@ -261,8 +274,8 @@ object RosenpassManager {
         }
     }
 
-    /** Default per-connect nonce when server omits one. */
-    private val DEFAULT_NONCE_BYTES = "BirdoPQ-v1-default-nonce".toByteArray()
+    // PFA-M5: legacy DEFAULT_NONCE_BYTES constant removed — `tryDecapsulate`
+    // now refuses to derive a PSK against a missing/empty per-connect nonce.
 
     // ── HKDF helpers (kept for tests + future on-wire derivations) ─────────
 

@@ -53,6 +53,19 @@ android {
         // Native library integrity: populated by computeNativeHashes task for release builds
         buildConfigField("String", "NATIVE_HASH_WG_GO", "\"\"")
         buildConfigField("String", "NATIVE_HASH_XRAY", "\"\"")
+
+        // PFA-Pass10: APK signing-cert SHA-256 fingerprint (colon-separated upper-hex,
+        // e.g. "AB:CD:EF:..."). RootDetector.checkTampering compares the runtime
+        // signing cert against this constant; populate from gradle property
+        // `birdoSigningCertFingerprint` or env BIRDO_SIGNING_CERT_FINGERPRINT.
+        // For Play App Signing, copy the "App signing key certificate" SHA-256
+        // from Play Console → Setup → App signing. Leave blank to disable the
+        // check (release builds will log a one-time warning).
+        val signingCertFp = (project.findProperty("birdoSigningCertFingerprint") as String?)
+            ?: localProperties.getProperty("BIRDO_SIGNING_CERT_FINGERPRINT")
+            ?: System.getenv("BIRDO_SIGNING_CERT_FINGERPRINT")
+            ?: ""
+        buildConfigField("String", "SIGNING_CERT_FINGERPRINT", "\"$signingCertFp\"")
     }
 
     signingConfigs {
@@ -133,6 +146,15 @@ android {
         checkReleaseBuilds = false
         warningsAsErrors = false
     }
+}
+
+// PFA-M3: pin every dependency resolution to a generated lockfile so a
+// compromised upstream proxy or transitive version drift cannot silently
+// substitute artifacts. Run `./gradlew :app:dependencies --write-locks`
+// to (re)generate gradle.lockfile after deliberate dependency bumps.
+dependencyLocking {
+    lockAllConfigurations()
+    lockMode = LockMode.STRICT
 }
 
 // CI: existing unit-test failures are tracked separately; do not block the
@@ -220,8 +242,14 @@ afterEvaluate {
                     }
                     val wgHash = hashSo("wg-go")
                     val xrayHash = hashSo("Xray")
+                    // AUDIT-E1: include librosenpass_jni.so in the integrity
+                    // set. Without this, an attacker who swaps just the
+                    // PQ JNI .so could silently downgrade BirdoPQ v1 by
+                    // returning an attacker-known PSK from deriveSharedPsk().
+                    val rosenpassJniHash = hashSo("rosenpass_jni")
                     android.defaultConfig.buildConfigField("String", "NATIVE_HASH_WG_GO", "\"$wgHash\"")
                     android.defaultConfig.buildConfigField("String", "NATIVE_HASH_XRAY", "\"$xrayHash\"")
+                    android.defaultConfig.buildConfigField("String", "NATIVE_HASH_ROSENPASS_JNI", "\"$rosenpassJniHash\"")
                 }
                 generateBuildConfig.mustRunAfter(mergeTask)
             }
@@ -279,15 +307,8 @@ dependencies {
     // ── Security ─────────────────────────────────────────────────
     implementation("androidx.security:security-crypto:1.1.0-alpha06") // no stable 1.1.x available
     implementation("androidx.biometric:biometric:1.1.0")
-    // ── Crash Reporting ──────────────────────────────────────────
+    // Crash Reporting
     implementation("io.sentry:sentry-android:8.39.1")
-
-    // ── In-App Updates ───────────────────────────────────────────
-    implementation("com.google.android.play:app-update:2.1.0")
-    implementation("com.google.android.play:app-update-ktx:2.1.0")
-
-    // ── Google Play Billing (subscriptions + IAP) ────────────────
-    implementation("com.android.billingclient:billing-ktx:7.1.1")
 
     // ── Glance (Home Screen Widget) ──────────────────────────────
     implementation("androidx.glance:glance-appwidget:1.1.1")
